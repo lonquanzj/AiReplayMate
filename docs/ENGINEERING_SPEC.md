@@ -27,7 +27,11 @@
 - 已有 Compose 入口页面
 - 已注册 `ReplyAccessibilityService`
 - 已具备基础权限设置入口
-- 尚未落地多模块拆分、DI、Room、DataStore、LLM、OCR、Overlay
+- 已有微信聊天页初判、结构化消息采样、输入框定位与最小 `ACTION_SET_TEXT` 尝试
+- 已有 Demo 版 `SessionManager` 状态流骨架和候选面板演示
+- 已有最小 `ContextBuilder`，用于清洗、去重并截断 Accessibility 上下文
+- 已有最小 Overlay 悬浮按钮和系统级候选面板入口
+- 尚未落地多模块拆分、DI、Room、DataStore、LLM、OCR
 
 ### 2.2 本文默认适用范围
 

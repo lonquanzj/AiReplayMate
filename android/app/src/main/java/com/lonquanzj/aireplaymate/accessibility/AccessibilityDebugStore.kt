@@ -17,11 +17,16 @@ data class AccessibilityDebugState(
     val conversationTitle: String? = null,
     val inputNodeFound: Boolean = false,
     val inputNodeHint: String? = null,
-    val extractedMessages: List<String> = emptyList(),
+    val extractedMessages: List<ChatMessage> = emptyList(),
     val lastAutofillStatus: String = "未尝试",
     val lastAutofillPreview: String? = null,
     val updatedAtMillis: Long = 0L
-)
+) {
+    val extractedMessagePreviews: List<String>
+        get() = extractedMessages.map { message ->
+            "${message.role.label}: ${message.content}"
+        }
+}
 
 object AccessibilityDebugStore {
     private val _state = MutableStateFlow(AccessibilityDebugState())
@@ -52,7 +57,7 @@ object AccessibilityDebugStore {
         conversationTitle: String?,
         inputNodeFound: Boolean,
         inputNodeHint: String?,
-        extractedMessages: List<String>
+        extractedMessages: List<ChatMessage>
     ) {
         _state.value = _state.value.copy(
             lastEventName = eventName,
@@ -84,3 +89,11 @@ object AccessibilityDebugStore {
 }
 
 const val WECHAT_PACKAGE_NAME = "com.tencent.mm"
+
+private val ChatRole.label: String
+    get() = when (this) {
+        ChatRole.ME -> "我"
+        ChatRole.FRIEND -> "对方"
+        ChatRole.SYSTEM -> "系统"
+        ChatRole.UNKNOWN -> "未知"
+    }

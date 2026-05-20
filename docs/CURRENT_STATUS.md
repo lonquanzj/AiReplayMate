@@ -11,7 +11,11 @@
 - 已注册 `ReplyAccessibilityService`
 - 已有无障碍设置、悬浮窗设置两个快捷入口
 - 已声明基础权限：悬浮窗、通知、前台服务
-- 尚未实现任何 MVP 主链路能力
+- 已有 Demo 形态的会话主链路状态机
+- 已接入微信聊天页初判、结构化消息采样、输入框定位与最小 `ACTION_SET_TEXT` 填入尝试
+- 已有最小 `ContextBuilder`，可过滤、去重、截断 Accessibility 上下文
+- 已有最小 Overlay 悬浮按钮与系统级候选面板，可在微信上方选择候选并尝试填入
+- 尚未打通真实 LLM / OCR 闭环
 
 对应代码入口：
 
@@ -28,6 +32,13 @@
 - Accessibility Service 已注册到 Manifest
 - Accessibility 配置文件已存在
 - App 首页提供系统设置跳转入口
+- 首页可展示真实无障碍调试状态、消息提取预览与填入结果
+- 已有微信页面分析器 `WeChatAccessibilityAnalyzer`
+- 已有最小 `ChatMessage` / `ChatRole` / `MessageSource` 模型，并能按节点位置粗分“我 / 对方 / 系统”
+- 已有最小 `ChatContext` / `ConversationType` / `DefaultContextBuilder`
+- 已有最小 `SessionManager` 演示骨架，统一管理校验、提取、候选、填入几个阶段
+- 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和本地候选面板
+- 已有最小 Autofill 尝试链路：定位输入框并执行 `ACTION_SET_TEXT`
 
 ## 3. 未完成
 
@@ -36,26 +47,22 @@
 - 多模块拆分
 - Hilt / DI
 - Navigation 完整路由
-- Overlay 悬浮按钮
-- 微信聊天页识别
-- Accessibility 消息提取
-- 输入框定位与 Autofill
 - MediaProjection 截图
 - ML Kit OCR
-- ContextBuilder
 - PromptBuilder
 - LLM API 集成
-- 候选面板
+- 基于真实 LLM 的候选生成
+- Autofill 剪贴板兜底与回读验证
 - DataStore / Room
 - 日志诊断页面
 
 ## 4. 文档和代码的关系
 
-当前文档是“目标规格清晰，代码实现还很早”的状态：
+当前文档仍然是“目标规格清晰，代码实现早期”的状态，但已经不再是纯空骨架：
 
 - [PRD.md](/home/percy/AiReplayMate/docs/PRD.md) 定义了 MVP 范围
 - [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md) 定义了目标架构和接口约束
-- 当前代码还没有覆盖这些模块，大部分仍属于待实现设计
+- 当前代码已覆盖最小会话演示、微信页面初判和基础 Autofill 尝试，但大部分核心模块仍属于待实现设计
 
 所以后续开发时要注意：
 
@@ -69,17 +76,17 @@
 最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
 
 1. 补齐项目基础设施
-2. 明确会话主链路骨架
-3. 先做微信聊天页识别与输入框定位
+2. 把当前会话骨架从 Demo 推进到真实可复用链路
+3. 补齐真实消息提取、候选生成与 Autofill 降级
 
 对应任务建议：
 
 - Gradle 多模块拆分
 - Hilt DI 接入
 - Navigation 骨架
-- `SessionManager` 状态机骨架
-- `ChatAppAdapter` 与 `WeChatAdapter` 接口骨架
-- `AutofillEngine` 接口和空实现
+- `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
+- Accessibility 消息结构化提取
+- `AutofillEngine` 回读验证与剪贴板兜底
 
 ### Next
 

@@ -9,7 +9,7 @@ data class WeChatInspectionResult(
     val conversationTitle: String?,
     val inputNodeFound: Boolean,
     val inputNodeHint: String?,
-    val extractedMessages: List<String>
+    val extractedMessages: List<ChatMessage>
 )
 
 object WeChatAccessibilityAnalyzer {
@@ -42,6 +42,7 @@ object WeChatAccessibilityAnalyzer {
         val collectedTexts = mutableListOf<NodeText>()
         val editableNodes = mutableListOf<AccessibilityNodeInfo>()
         collectNodeSignals(root, collectedTexts, editableNodes)
+        val rootBounds = Rect().also(root::getBoundsInScreen)
 
         val hasChatControl = collectedTexts.any { node ->
             node.text.contains("发送") ||
@@ -53,7 +54,7 @@ object WeChatAccessibilityAnalyzer {
 
         val title = detectConversationTitle(collectedTexts)
         val inputNode = pickChatInputNode(editableNodes)
-        val messages = extractMessageTexts(collectedTexts, title)
+        val messages = extractMessages(collectedTexts, title, rootBounds)
         val looksLikeChatPage = inputNode != null && (hasChatControl || messages.size >= 2)
 
         val reason = buildString {
@@ -97,11 +98,23 @@ object WeChatAccessibilityAnalyzer {
         }
 
         if (text.isNotEmpty()) {
-            collectedTexts += NodeText(text = text, top = bounds.top)
+            collectedTexts += NodeText(
+                text = text,
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom
+            )
         }
 
         if (description.isNotEmpty()) {
-            collectedTexts += NodeText(text = description, top = bounds.top)
+            collectedTexts += NodeText(
+                text = description,
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom
+            )
         }
 
         for (index in 0 until node.childCount) {
@@ -149,11 +162,12 @@ object WeChatAccessibilityAnalyzer {
         } ?: editableNodes.firstOrNull()
     }
 
-    private fun extractMessageTexts(
+    private fun extractMessages(
         collectedTexts: List<NodeText>,
-        title: String?
-    ): List<String> {
-        val seen = linkedSetOf<String>()
+        title: String?,
+        rootBounds: Rect
+    ): List<ChatMessage> {
+        val seen = linkedMapOf<String, NodeText>()
 
         collectedTexts
             .sortedBy { it.top }
@@ -165,16 +179,69 @@ object WeChatAccessibilityAnalyzer {
                 if (text.length > 120) return@forEach
                 if (timeRegex.matches(text)) return@forEach
                 if (emojiOnlyRegex.matches(text)) return@forEach
-                seen += text
+                seen.putIfAbsent(text, item)
             }
 
-        return seen.toList().takeLast(8)
+        return seen.values.toList()
+            .takeLast(8)
+            .mapIndexed { index, item ->
+                val role = inferRole(item, rootBounds)
+                ChatMessage(
+                    id = stableMessageId(index, item.text),
+                    role = role,
+                    content = item.text,
+                    timestamp = null,
+                    source = MessageSource.ACCESSIBILITY,
+                    confidence = confidenceForRole(role),
+                    boundsHint = item.boundsHint
+                )
+            }
+    }
+
+    private fun inferRole(
+        item: NodeText,
+        rootBounds: Rect
+    ): ChatRole {
+        val text = item.text
+        if (systemHintRegex.containsMatchIn(text)) return ChatRole.SYSTEM
+
+        val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return ChatRole.UNKNOWN
+        val centerX = item.centerX - rootBounds.left
+        val leftRatio = (item.left - rootBounds.left).toFloat() / rootWidth
+        val centerRatio = centerX.toFloat() / rootWidth
+
+        return when {
+            leftRatio > 0.42f || centerRatio > 0.58f -> ChatRole.ME
+            centerRatio < 0.52f -> ChatRole.FRIEND
+            else -> ChatRole.UNKNOWN
+        }
+    }
+
+    private fun confidenceForRole(role: ChatRole): Float = when (role) {
+        ChatRole.ME,
+        ChatRole.FRIEND -> 0.72f
+        ChatRole.SYSTEM -> 0.82f
+        ChatRole.UNKNOWN -> 0.45f
+    }
+
+    private fun stableMessageId(
+        index: Int,
+        content: String
+    ): String {
+        val hash = content.hashCode().toUInt().toString(16)
+        return "accessibility_${index}_$hash"
     }
 
     private data class NodeText(
         val text: String,
-        val top: Int
-    )
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int
+    ) {
+        val centerX: Int = left + ((right - left) / 2)
+        val boundsHint: String = "$left,$top,$right,$bottom"
+    }
 
     private val blockedUiTexts = setOf(
         "发送",
@@ -191,4 +258,5 @@ object WeChatAccessibilityAnalyzer {
 
     private val timeRegex = Regex("^\\d{1,2}:\\d{2}$")
     private val emojiOnlyRegex = Regex("^[\\p{So}\\p{Cn}]+$")
+    private val systemHintRegex = Regex("撤回|以上是|以下是|系统")
 }

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,8 +48,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,27 +57,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
-import com.lonquanzj.aireplaymate.demo.DemoCandidate
 import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.demo.DemoScenario
-import com.lonquanzj.aireplaymate.demo.DemoStage
 import com.lonquanzj.aireplaymate.demo.demoScenarios
+import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
+import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
+import com.lonquanzj.aireplaymate.session.DemoSessionManager
+import com.lonquanzj.aireplaymate.session.SessionState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class PermissionSnapshot(
@@ -101,6 +99,16 @@ class MainActivity : ComponentActivity() {
                     onOpenOverlaySettings = {
                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                     },
+                    onStartOverlayService = {
+                        if (Settings.canDrawOverlays(this)) {
+                            startService(Intent(this, OverlayButtonService::class.java))
+                        } else {
+                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                        }
+                    },
+                    onStopOverlayService = {
+                        stopService(Intent(this, OverlayButtonService::class.java))
+                    },
                     loadPermissionSnapshot = { readPermissionSnapshot(this) }
                 )
             }
@@ -113,22 +121,19 @@ class MainActivity : ComponentActivity() {
 private fun MainScreen(
     onOpenAccessibilitySettings: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
+    onStartOverlayService: () -> Unit,
+    onStopOverlayService: () -> Unit,
     loadPermissionSnapshot: () -> PermissionSnapshot
 ) {
     val scenarios = remember { demoScenarios() }
+    val sessionManager = remember { DemoSessionManager() }
+    val sessionState by sessionManager.state.collectAsState()
     var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
-    var currentStage by remember { mutableStateOf(DemoStage.IDLE) }
-    var replyDraft by remember { mutableStateOf("") }
-    var extractedMessages by remember { mutableStateOf(scenarios.first().messages) }
-    var candidates by remember { mutableStateOf(emptyList<DemoCandidate>()) }
-    var showCandidateSheet by remember { mutableStateOf(false) }
-    var isRunning by remember { mutableStateOf(false) }
-    var generationRound by remember { mutableIntStateOf(0) }
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
-    val activityLog = remember { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
+    val overlayTrigger by OverlayTriggerStore.request.collectAsState()
 
     val selectedScenario = remember(selectedScenarioId, scenarios) {
         scenarios.first { it.id == selectedScenarioId }
@@ -147,29 +152,24 @@ private fun MainScreen(
     }
 
     LaunchedEffect(selectedScenarioId) {
-        currentStage = DemoStage.IDLE
-        replyDraft = ""
-        extractedMessages = selectedScenario.messages
-        candidates = emptyList()
-        showCandidateSheet = false
-        generationRound = 0
-        activityLog.clear()
-        activityLog += "已切换到 ${selectedScenario.title} 场景"
+        sessionManager.prepareScenario(selectedScenario)
     }
 
-    if (showCandidateSheet) {
+    LaunchedEffect(overlayTrigger?.id) {
+        val request = overlayTrigger ?: return@LaunchedEffect
+        sessionManager.runDemo(selectedScenario, request.debugState)
+        OverlayTriggerStore.consume(request.id)
+    }
+
+    if (sessionState.showCandidateSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         BackHandler {
-            showCandidateSheet = false
-            currentStage = DemoStage.IDLE
-            activityLog += "用户关闭候选面板，本次演示已取消"
+            sessionManager.cancelCandidateSelection("用户关闭候选面板，本次演示已取消")
         }
 
         ModalBottomSheet(
             onDismissRequest = {
-                showCandidateSheet = false
-                currentStage = DemoStage.IDLE
-                activityLog += "候选面板已收起，等待再次触发"
+                sessionManager.cancelCandidateSelection("候选面板已收起，等待再次触发")
             },
             sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface,
@@ -192,19 +192,13 @@ private fun MainScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                candidates.forEach { candidate ->
+                sessionState.candidates.forEach { candidate ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                showCandidateSheet = false
                                 scope.launch {
-                                    currentStage = DemoStage.AUTOFILLING
-                                    activityLog += "用户选择了 ${candidate.tone} 风格候选"
-                                    delay(350)
-                                    replyDraft = candidate.text
-                                    currentStage = DemoStage.DONE
-                                    activityLog += "已把候选填入模拟输入框"
+                                    sessionManager.selectCandidate(candidate)
                                 }
                             },
                         colors = CardDefaults.cardColors(
@@ -236,9 +230,7 @@ private fun MainScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            generationRound += 1
-                            candidates = selectedScenario.candidates(generationRound)
-                            activityLog += "已重新生成 3 条候选"
+                            sessionManager.regenerateCandidates(selectedScenario)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(18.dp)
@@ -248,9 +240,7 @@ private fun MainScreen(
 
                     Button(
                         onClick = {
-                            showCandidateSheet = false
-                            currentStage = DemoStage.IDLE
-                            activityLog += "本次演示已结束，可重新触发"
+                            sessionManager.cancelCandidateSelection("本次演示已结束，可重新触发")
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(18.dp)
@@ -304,49 +294,20 @@ private fun MainScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 HeroCard(
-                    currentStage = currentStage,
-                    isRunning = isRunning,
+                    currentStage = sessionState.currentState,
+                    stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
+                    isRunning = sessionState.isRunning,
                     selectedScenario = selectedScenario,
                     onRunDemo = {
-                        if (!isRunning) {
+                        if (!sessionState.isRunning) {
                             scope.launch {
-                                isRunning = true
-                                showCandidateSheet = false
-                                replyDraft = ""
-                                extractedMessages = selectedScenario.messages
-                                candidates = emptyList()
-                                activityLog.clear()
-
-                                currentStage = DemoStage.VALIDATING_TARGET
-                                activityLog += "已识别微信单聊页面"
-                                delay(450)
-
-                                currentStage = DemoStage.COLLECTING_ACCESSIBILITY
-                                activityLog += "Accessibility 提取到 ${selectedScenario.messages.size} 条消息"
-                                delay(700)
-
-                                currentStage = DemoStage.REQUESTING_LLM
-                                activityLog += "正在根据最近一条对方消息生成回复候选"
-                                delay(900)
-
-                                generationRound += 1
-                                candidates = selectedScenario.candidates(generationRound)
-                                currentStage = DemoStage.CANDIDATE_READY
-                                activityLog += "已返回 3 条候选，等待用户选择"
-                                showCandidateSheet = true
-                                isRunning = false
+                                sessionManager.runDemo(selectedScenario, debugState)
                             }
                         }
                     },
                     onReset = {
-                        if (!isRunning) {
-                            currentStage = DemoStage.IDLE
-                            showCandidateSheet = false
-                            replyDraft = ""
-                            candidates = emptyList()
-                            extractedMessages = selectedScenario.messages
-                            activityLog.clear()
-                            activityLog += "已重置演示状态"
+                        if (!sessionState.isRunning) {
+                            sessionManager.reset(selectedScenario)
                         }
                     }
                 )
@@ -354,7 +315,9 @@ private fun MainScreen(
                 PermissionStatusSection(
                     permissionSnapshot = permissionSnapshot,
                     onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                    onOpenOverlaySettings = onOpenOverlaySettings
+                    onOpenOverlaySettings = onOpenOverlaySettings,
+                    onStartOverlayService = onStartOverlayService,
+                    onStopOverlayService = onStopOverlayService
                 )
 
                 RealAccessibilitySection(debugState = debugState)
@@ -362,28 +325,31 @@ private fun MainScreen(
                 ScenarioSection(
                     scenarios = scenarios,
                     selectedScenarioId = selectedScenarioId,
-                    enabled = !isRunning,
+                    enabled = !sessionState.isRunning,
                     onSelectScenario = { selectedScenarioId = it }
                 )
 
-                SessionStageSection(currentStage = currentStage)
+                SessionStageSection(
+                    currentStage = sessionState.currentState,
+                    progressStage = sessionState.progressState
+                )
 
                 ConversationPreviewSection(
                     scenario = selectedScenario,
-                    messages = extractedMessages
+                    messages = sessionState.extractedMessages
                 )
 
                 ReplyDraftSection(
-                    replyDraft = replyDraft,
-                    onReplyDraftChange = { replyDraft = it },
+                    replyDraft = sessionState.replyDraft,
+                    onReplyDraftChange = sessionManager::updateReplyDraft,
                     onTryRealAutofill = {
-                        val result = AccessibilityActionBridge.tryAutofill(replyDraft)
-                        activityLog += "真实填入：${result.message}"
+                        val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
+                        sessionManager.noteRealAutofillResult(result.message)
                     },
-                    canTryRealAutofill = replyDraft.isNotBlank()
+                    canTryRealAutofill = sessionState.replyDraft.isNotBlank()
                 )
 
-                ActivityLogSection(entries = activityLog)
+                ActivityLogSection(entries = sessionState.activityLog)
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -393,7 +359,8 @@ private fun MainScreen(
 
 @Composable
 private fun HeroCard(
-    currentStage: DemoStage,
+    currentStage: SessionState,
+    stageDetail: String,
     isRunning: Boolean,
     selectedScenario: DemoScenario,
     onRunDemo: () -> Unit,
@@ -447,7 +414,7 @@ private fun HeroCard(
                 color = Color.White
             )
             Text(
-                text = currentStage.detail,
+                text = stageDetail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFFBFE4DE)
             )
@@ -466,7 +433,13 @@ private fun HeroCard(
                     ),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (currentStage == DemoStage.IDLE) "运行 Demo" else "再次演示")
+                    Text(
+                        if (currentStage == SessionState.IDLE) {
+                            "运行 Demo"
+                        } else {
+                            "再次演示"
+                        }
+                    )
                 }
 
                 OutlinedButton(
@@ -489,7 +462,9 @@ private fun HeroCard(
 private fun PermissionStatusSection(
     permissionSnapshot: PermissionSnapshot,
     onOpenAccessibilitySettings: () -> Unit,
-    onOpenOverlaySettings: () -> Unit
+    onOpenOverlaySettings: () -> Unit,
+    onStartOverlayService: () -> Unit,
+    onStopOverlayService: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -516,12 +491,18 @@ private fun PermissionStatusSection(
                 title = "悬浮窗权限",
                 enabled = permissionSnapshot.overlayEnabled,
                 description = if (permissionSnapshot.overlayEnabled) {
-                    "已授权，后续接 Overlay 会更顺。"
+                    "已授权，可启动微信里的 AI 小气泡。"
                 } else {
-                    "Demo 仍可运行，但悬浮按钮能力还未接入。"
+                    "需要授权后才能在微信上方显示触发入口。"
                 },
-                buttonText = "去设置",
-                onClick = onOpenOverlaySettings,
+                buttonText = if (permissionSnapshot.overlayEnabled) "启动气泡" else "去设置",
+                onClick = if (permissionSnapshot.overlayEnabled) {
+                    onStartOverlayService
+                } else {
+                    onOpenOverlaySettings
+                },
+                secondaryButtonText = if (permissionSnapshot.overlayEnabled) "停止气泡" else null,
+                onSecondaryClick = onStopOverlayService,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -535,6 +516,8 @@ private fun PermissionCard(
     description: String,
     buttonText: String,
     onClick: () -> Unit,
+    secondaryButtonText: String? = null,
+    onSecondaryClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -577,11 +560,22 @@ private fun PermissionCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            OutlinedButton(
-                onClick = onClick,
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text(buttonText)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onClick,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(buttonText)
+                }
+
+                if (secondaryButtonText != null && onSecondaryClick != null) {
+                    OutlinedButton(
+                        onClick = onSecondaryClick,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(secondaryButtonText)
+                    }
+                }
             }
         }
     }
@@ -661,13 +655,13 @@ private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                if (debugState.extractedMessages.isNotEmpty()) {
+                if (debugState.extractedMessagePreviews.isNotEmpty()) {
                     Text(
                         text = "消息提取预览",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    debugState.extractedMessages.takeLast(5).forEach { message ->
+                    debugState.extractedMessagePreviews.takeLast(5).forEach { message ->
                         Text(
                             text = "- $message",
                             style = MaterialTheme.typography.bodyMedium,
@@ -818,14 +812,18 @@ private fun ScenarioSection(
 }
 
 @Composable
-private fun SessionStageSection(currentStage: DemoStage) {
+private fun SessionStageSection(
+    currentStage: SessionState,
+    progressStage: SessionState
+) {
     val steps = listOf(
-        DemoStage.VALIDATING_TARGET,
-        DemoStage.COLLECTING_ACCESSIBILITY,
-        DemoStage.REQUESTING_LLM,
-        DemoStage.CANDIDATE_READY,
-        DemoStage.AUTOFILLING,
-        DemoStage.DONE
+        SessionState.VALIDATING_TARGET,
+        SessionState.COLLECTING_ACCESSIBILITY,
+        SessionState.BUILDING_CONTEXT,
+        SessionState.REQUESTING_LLM,
+        SessionState.CANDIDATE_READY,
+        SessionState.AUTOFILLING,
+        SessionState.DONE
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -846,7 +844,7 @@ private fun SessionStageSection(currentStage: DemoStage) {
                 steps.forEachIndexed { index, step ->
                     val stateText = when {
                         step == currentStage -> "进行中"
-                        currentStage.ordinal > step.ordinal -> "已完成"
+                        progressStage.progress >= step.progress -> "已完成"
                         else -> "待执行"
                     }
 
