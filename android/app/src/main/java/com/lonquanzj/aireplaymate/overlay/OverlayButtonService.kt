@@ -20,16 +20,9 @@ import android.widget.Toast
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
-import com.lonquanzj.aireplaymate.accessibility.ChatRole
-import com.lonquanzj.aireplaymate.accessibility.MessageSource
-import com.lonquanzj.aireplaymate.context.ChatContext
-import com.lonquanzj.aireplaymate.context.ConversationType
-import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
-import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
-import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
-import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
-import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
+import com.lonquanzj.aireplaymate.session.RealReplySessionPhase
+import com.lonquanzj.aireplaymate.session.RealReplySessionRunner
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -185,107 +178,56 @@ class OverlayButtonService : Service() {
 
     private suspend fun showCandidatePanel(debugState: AccessibilityDebugState) {
         OverlayDiagnosticsStore.begin()
-        val blocker = validateTarget(debugState)
-        if (blocker != null) {
-            OverlayDiagnosticsStore.onFailed(blocker)
-            Toast.makeText(this, blocker, Toast.LENGTH_SHORT).show()
+        val settings = AppSettingsStore.load(this)
+        val result = RealReplySessionRunner(applicationContext).run(
+            debugState = debugState,
+            settings = settings,
+            onPhase = { phase, status ->
+                OverlayDiagnosticsStore.onPhase(
+                    phase = phase.toOverlayPhase(),
+                    status = status
+                )
+                showProgressPanel(
+                    when (phase) {
+                        RealReplySessionPhase.BUILDING_CONTEXT -> "正在整理聊天上下文..."
+                        RealReplySessionPhase.OCR_FALLBACK -> "正在用 OCR 兜底识别消息..."
+                        RealReplySessionPhase.REQUESTING_LLM -> "正在生成候选回复..."
+                        RealReplySessionPhase.LOCAL_FALLBACK -> "正在准备本地兜底候选..."
+                        RealReplySessionPhase.VALIDATING -> "正在校验微信页面..."
+                    }
+                )
+            },
+            onContext = { snapshot ->
+                OverlayDiagnosticsStore.onContext(
+                    accessibilityMessageCount = snapshot.accessibilityMessageCount,
+                    ocrMessageCount = snapshot.ocrMessageCount,
+                    mergedMessageCount = snapshot.mergedMessageCount,
+                    usedOcr = snapshot.usedOcr
+                )
+            }
+        )
+
+        val sessionResult = result.getOrElse { error ->
+            val message = error.message ?: "生成候选失败"
+            OverlayDiagnosticsStore.onFailed(message)
+            removeCandidatePanel()
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             return
         }
-        OverlayDiagnosticsStore.onPhase(
-            phase = OverlayRunPhase.BUILDING_CONTEXT,
-            status = "页面校验通过，开始整理上下文"
-        )
-        showProgressPanel("正在整理聊天上下文...")
-
-        var context = DefaultContextBuilder.build(
-            accessibilityMessages = debugState.extractedMessages,
-            targetApp = WECHAT_TARGET_APP,
-            conversationType = ConversationType.SINGLE_CHAT
-        )
-        OverlayDiagnosticsStore.onContext(
-            accessibilityMessageCount = debugState.extractedMessages.size,
-            ocrMessageCount = 0,
-            mergedMessageCount = context.messages.size,
-            usedOcr = false
-        )
-        if (!context.enoughForReply) {
-            OverlayDiagnosticsStore.onPhase(
-                phase = OverlayRunPhase.OCR_FALLBACK,
-                status = "Accessibility 上下文不足，开始 OCR 兜底"
-            )
-            showProgressPanel("正在用 OCR 兜底识别消息...")
-            val ocrResult = MlKitChineseOcrEngine(applicationContext).recognizeChatMessages(
-                targetApp = WECHAT_TARGET_APP,
-                reason = "悬浮按钮触发时 Accessibility 上下文不足"
-            )
-            context = DefaultContextBuilder.build(
-                accessibilityMessages = debugState.extractedMessages,
-                ocrMessages = ocrResult.messages,
-                targetApp = WECHAT_TARGET_APP,
-                conversationType = ConversationType.SINGLE_CHAT
-            )
-            OverlayDiagnosticsStore.onContext(
-                accessibilityMessageCount = debugState.extractedMessages.size,
-                ocrMessageCount = ocrResult.messages.size,
-                mergedMessageCount = context.messages.size,
-                usedOcr = true
-            )
-            if (!context.enoughForReply) {
-                OverlayDiagnosticsStore.onFailed("上下文不足，且 ${ocrResult.message}")
-                removeCandidatePanel()
-                Toast.makeText(
-                    this,
-                    "上下文不足，且 ${ocrResult.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-                return
-            }
-        }
-
-        val settings = AppSettingsStore.load(this)
-        val llmRequest = DefaultPromptBuilder.build(
-            context = context,
-            settings = settings
-        )
-        OverlayDiagnosticsStore.onPhase(
-            phase = OverlayRunPhase.REQUESTING_LLM,
-            status = "正在生成候选回复"
-        )
-        showProgressPanel("正在生成候选回复...")
-        Toast.makeText(this, "正在生成候选回复", Toast.LENGTH_SHORT).show()
-        var usedLocalFallback = false
-        var candidateSource = if (context.messages.any { it.source == MessageSource.OCR }) {
-            "LLM（含 OCR 上下文）"
+        if (sessionResult.usedLocalFallback) {
+            Toast.makeText(
+                this,
+                "LLM 不可用，已使用本地兜底：${sessionResult.localFallbackReason ?: "未知错误"}",
+                Toast.LENGTH_SHORT
+            ).show()
         } else {
-            "LLM"
+            Toast.makeText(this, "候选回复已生成", Toast.LENGTH_SHORT).show()
         }
-        val candidates = OpenAiCompatibleLlmGateway(settings)
-            .generateReplies(llmRequest)
-            .fold(
-                onSuccess = { it.toOverlayCandidates() },
-                onFailure = { error ->
-                    usedLocalFallback = true
-                    candidateSource = if (context.messages.any { it.source == MessageSource.OCR }) {
-                        "本地兜底（含 OCR 上下文）"
-                    } else {
-                        "本地兜底"
-                    }
-                    OverlayDiagnosticsStore.onPhase(
-                        phase = OverlayRunPhase.LOCAL_FALLBACK,
-                        status = "LLM 不可用，切换到本地兜底：${error.message ?: "未知错误"}"
-                    )
-                    Toast.makeText(
-                        this,
-                        "LLM 不可用，已使用本地兜底：${error.message ?: "未知错误"}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    generateLocalCandidates(context, llmRequest)
-                }
-            )
+        val candidates = sessionResult.candidates.toOverlayCandidates()
         OverlayDiagnosticsStore.onCandidates(
             count = candidates.size,
-            usedLocalFallback = usedLocalFallback,
-            candidateSource = candidateSource
+            usedLocalFallback = sessionResult.usedLocalFallback,
+            candidateSource = sessionResult.candidateSource
         )
         removeCandidatePanel()
 
@@ -311,7 +253,7 @@ class OverlayButtonService : Service() {
 
         panel.addView(
             TextView(this).apply {
-                text = "来源：$candidateSource"
+                text = "来源：${sessionResult.candidateSource}"
                 textSize = 12f
                 setTextColor(Color.rgb(91, 101, 98))
                 setPadding(0, dp(4), 0, 0)
@@ -457,60 +399,22 @@ class OverlayButtonService : Service() {
         button.alpha = if (isLoading) 0.72f else 1f
     }
 
-    private fun validateTarget(debugState: AccessibilityDebugState): String? {
-        if (!debugState.serviceConnected) {
-            return "无障碍服务未连接"
-        }
-        if (!debugState.isWechatPackage) {
-            return "当前不在微信页面"
-        }
-        if (!debugState.looksLikeChatPage) {
-            return "当前不像微信单聊页"
-        }
-        if (!debugState.inputNodeFound) {
-            return "未找到微信输入框"
-        }
-        return null
-    }
-
-    private fun generateLocalCandidates(
-        context: ChatContext,
-        request: LlmRequest
-    ): List<OverlayCandidate> {
-        val lastFriendMessage = context.messages.lastOrNull { it.role == ChatRole.FRIEND }?.content
-        val message = lastFriendMessage.orEmpty()
-        val texts = when {
-            message.contains("吗") || message.contains("?") || message.contains("？") -> listOf(
-                "可以的，我这边确认后马上回复你。",
-                "我先看一下，稍后给你明确答复。",
-                "没问题，我处理完第一时间告诉你。"
-            )
-
-            message.contains("时间") || message.contains("几点") -> listOf(
-                "我这边晚点确认时间后同步你。",
-                "可以，我先看下安排，稍后告诉你具体时间。",
-                "收到，我确认好时间马上回复。"
-            )
-
-            else -> listOf(
-                "收到，我这边先确认一下，稍后回复你。",
-                "好的，我看完后马上同步给你。",
-                "没问题，我这边处理完第一时间说。"
-            )
-        }
-
-        return texts.mapIndexed { index, text ->
-            val requestHash = request.userPrompt.hashCode().toUInt().toString(16)
-            OverlayCandidate(id = "local_${requestHash}_$index", text = text)
-        }
-    }
-
     private fun List<ReplyCandidate>.toOverlayCandidates(): List<OverlayCandidate> {
         return map { candidate ->
             OverlayCandidate(
                 id = candidate.id,
                 text = candidate.text
             )
+        }
+    }
+
+    private fun RealReplySessionPhase.toOverlayPhase(): OverlayRunPhase {
+        return when (this) {
+            RealReplySessionPhase.VALIDATING -> OverlayRunPhase.VALIDATING
+            RealReplySessionPhase.BUILDING_CONTEXT -> OverlayRunPhase.BUILDING_CONTEXT
+            RealReplySessionPhase.OCR_FALLBACK -> OverlayRunPhase.OCR_FALLBACK
+            RealReplySessionPhase.REQUESTING_LLM -> OverlayRunPhase.REQUESTING_LLM
+            RealReplySessionPhase.LOCAL_FALLBACK -> OverlayRunPhase.LOCAL_FALLBACK
         }
     }
 
@@ -540,7 +444,6 @@ class OverlayButtonService : Service() {
 
     private companion object {
         const val DRAG_SLOP = 8
-        const val WECHAT_TARGET_APP = "wechat"
     }
 
     private data class OverlayCandidate(

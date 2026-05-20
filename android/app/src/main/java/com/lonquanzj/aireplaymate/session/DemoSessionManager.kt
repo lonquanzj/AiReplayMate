@@ -4,6 +4,7 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.ChatMessage
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
 import com.lonquanzj.aireplaymate.accessibility.MessageSource
+import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
@@ -183,7 +184,7 @@ class DemoSessionManager {
         delay(900)
 
         val nextRound = _state.value.generationRound + 1
-        val candidates = scenario.candidates(nextRound)
+        val candidates = context.toDemoCandidates(scenario, nextRound)
 
         _state.update {
             it.copy(
@@ -203,9 +204,15 @@ class DemoSessionManager {
         if (current.currentState != SessionState.CANDIDATE_READY) return
 
         val nextRound = current.generationRound + 1
+        val messages = current.extractedMessages.ifEmpty { scenario.messages }
+        val context = DefaultContextBuilder.build(
+            accessibilityMessages = messages.toChatMessages(),
+            targetApp = WECHAT_TARGET_APP,
+            conversationType = ConversationType.SINGLE_CHAT
+        )
         _state.update {
             it.copy(
-                candidates = scenario.candidates(nextRound),
+                candidates = context.toDemoCandidates(scenario, nextRound),
                 generationRound = nextRound
             )
         }
@@ -335,6 +342,24 @@ class DemoSessionManager {
             DemoAuthor.ME -> ChatRole.ME
             DemoAuthor.FRIEND -> ChatRole.FRIEND
             DemoAuthor.SYSTEM -> ChatRole.SYSTEM
+        }
+    }
+
+    private fun ChatContext.toDemoCandidates(
+        scenario: DemoScenario,
+        round: Int
+    ): List<DemoCandidate> {
+        val seed = "$WECHAT_TARGET_APP:${scenario.id}:$round:" +
+            messages.joinToString("|") { it.content }
+        return LocalFallbackReplyGenerator.generate(
+            context = this,
+            seed = seed
+        ).map { candidate ->
+            DemoCandidate(
+                id = "demo_${candidate.id}",
+                text = candidate.text,
+                tone = candidate.tone ?: "本地兜底"
+            )
         }
     }
 
