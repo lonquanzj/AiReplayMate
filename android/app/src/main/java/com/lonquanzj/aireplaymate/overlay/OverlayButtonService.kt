@@ -21,6 +21,7 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
+import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
@@ -40,12 +41,15 @@ class OverlayButtonService : Service() {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var candidatePanelView: View? = null
+    private var progressStatusView: TextView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var isGeneratingCandidates = false
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) {
+            OverlayServiceStateStore.onMissingPermission()
             Toast.makeText(this, "请先开启悬浮窗权限", Toast.LENGTH_SHORT).show()
             stopSelf()
             return
@@ -53,6 +57,7 @@ class OverlayButtonService : Service() {
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         showFloatingButton()
+        OverlayServiceStateStore.onRunning(bubbleVisible = overlayView != null)
     }
 
     override fun onStartCommand(
@@ -60,9 +65,15 @@ class OverlayButtonService : Service() {
         flags: Int,
         startId: Int
     ): Int {
-        if (overlayView == null && Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this)) {
+            OverlayServiceStateStore.onMissingPermission()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (overlayView == null) {
             showFloatingButton()
         }
+        OverlayServiceStateStore.onRunning(bubbleVisible = overlayView != null)
         return START_STICKY
     }
 
@@ -75,6 +86,7 @@ class OverlayButtonService : Service() {
         }
         overlayView = null
         windowManager = null
+        OverlayServiceStateStore.onStopped()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -90,8 +102,19 @@ class OverlayButtonService : Service() {
             setBackgroundColor(0xDD12332F.toInt())
             elevation = 12f
             setOnClickListener {
+                if (isGeneratingCandidates) {
+                    Toast.makeText(this@OverlayButtonService, "正在生成候选回复，请稍等", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
                 serviceScope.launch {
-                    showCandidatePanel(AccessibilityDebugStore.state.value)
+                    isGeneratingCandidates = true
+                    updateFloatingButtonLoading(true)
+                    try {
+                        showCandidatePanel(AccessibilityDebugStore.state.value)
+                    } finally {
+                        isGeneratingCandidates = false
+                        updateFloatingButtonLoading(false)
+                    }
                 }
             }
         }
@@ -172,6 +195,7 @@ class OverlayButtonService : Service() {
             phase = OverlayRunPhase.BUILDING_CONTEXT,
             status = "页面校验通过，开始整理上下文"
         )
+        showProgressPanel("正在整理聊天上下文...")
 
         var context = DefaultContextBuilder.build(
             accessibilityMessages = debugState.extractedMessages,
@@ -189,6 +213,7 @@ class OverlayButtonService : Service() {
                 phase = OverlayRunPhase.OCR_FALLBACK,
                 status = "Accessibility 上下文不足，开始 OCR 兜底"
             )
+            showProgressPanel("正在用 OCR 兜底识别消息...")
             val ocrResult = MlKitChineseOcrEngine(applicationContext).recognizeChatMessages(
                 targetApp = WECHAT_TARGET_APP,
                 reason = "悬浮按钮触发时 Accessibility 上下文不足"
@@ -207,6 +232,7 @@ class OverlayButtonService : Service() {
             )
             if (!context.enoughForReply) {
                 OverlayDiagnosticsStore.onFailed("上下文不足，且 ${ocrResult.message}")
+                removeCandidatePanel()
                 Toast.makeText(
                     this,
                     "上下文不足，且 ${ocrResult.message}",
@@ -225,14 +251,25 @@ class OverlayButtonService : Service() {
             phase = OverlayRunPhase.REQUESTING_LLM,
             status = "正在生成候选回复"
         )
+        showProgressPanel("正在生成候选回复...")
         Toast.makeText(this, "正在生成候选回复", Toast.LENGTH_SHORT).show()
         var usedLocalFallback = false
+        var candidateSource = if (context.messages.any { it.source == MessageSource.OCR }) {
+            "LLM（含 OCR 上下文）"
+        } else {
+            "LLM"
+        }
         val candidates = OpenAiCompatibleLlmGateway(settings)
             .generateReplies(llmRequest)
             .fold(
                 onSuccess = { it.toOverlayCandidates() },
                 onFailure = { error ->
                     usedLocalFallback = true
+                    candidateSource = if (context.messages.any { it.source == MessageSource.OCR }) {
+                        "本地兜底（含 OCR 上下文）"
+                    } else {
+                        "本地兜底"
+                    }
                     OverlayDiagnosticsStore.onPhase(
                         phase = OverlayRunPhase.LOCAL_FALLBACK,
                         status = "LLM 不可用，切换到本地兜底：${error.message ?: "未知错误"}"
@@ -247,7 +284,8 @@ class OverlayButtonService : Service() {
             )
         OverlayDiagnosticsStore.onCandidates(
             count = candidates.size,
-            usedLocalFallback = usedLocalFallback
+            usedLocalFallback = usedLocalFallback,
+            candidateSource = candidateSource
         )
         removeCandidatePanel()
 
@@ -271,6 +309,19 @@ class OverlayButtonService : Service() {
             )
         )
 
+        panel.addView(
+            TextView(this).apply {
+                text = "来源：$candidateSource"
+                textSize = 12f
+                setTextColor(Color.rgb(91, 101, 98))
+                setPadding(0, dp(4), 0, 0)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
         candidates.forEach { candidate ->
             panel.addView(candidateView(candidate))
         }
@@ -281,7 +332,7 @@ class OverlayButtonService : Service() {
                 gravity = Gravity.CENTER
                 textSize = 14f
                 setTextColor(Color.rgb(91, 101, 98))
-            setPadding(0, dp(10), 0, 0)
+                setPadding(0, dp(10), 0, 0)
                 setOnClickListener {
                     OverlayDiagnosticsStore.onDone("用户关闭候选面板")
                     removeCandidatePanel()
@@ -341,6 +392,69 @@ class OverlayButtonService : Service() {
             windowManager?.removeView(view)
         }
         candidatePanelView = null
+        progressStatusView = null
+    }
+
+    private fun showProgressPanel(status: String) {
+        progressStatusView?.let { statusView ->
+            statusView.text = status
+            return
+        }
+
+        removeCandidatePanel()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = roundedBackground(0xF7FFFFFF.toInt(), dp(18).toFloat())
+            elevation = 18f
+        }
+        panel.addView(
+            TextView(this).apply {
+                text = "AI 正在工作"
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(18, 51, 47))
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        val statusView = TextView(this).apply {
+            text = status
+            textSize = 13f
+            setTextColor(Color.rgb(91, 101, 98))
+            setPadding(0, dp(8), 0, 0)
+        }
+        panel.addView(
+            statusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val params = WindowManager.LayoutParams(
+            dp(270),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(16)
+            y = dp(190)
+        }
+
+        progressStatusView = statusView
+        candidatePanelView = panel
+        windowManager?.addView(panel, params)
+    }
+
+    private fun updateFloatingButtonLoading(isLoading: Boolean) {
+        val button = overlayView as? TextView ?: return
+        button.text = if (isLoading) "..." else "AI"
+        button.alpha = if (isLoading) 0.72f else 1f
     }
 
     private fun validateTarget(debugState: AccessibilityDebugState): String? {

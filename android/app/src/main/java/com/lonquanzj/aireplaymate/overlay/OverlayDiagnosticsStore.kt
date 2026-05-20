@@ -26,6 +26,7 @@ data class OverlayDiagnosticsState(
     val ocrMessageCount: Int = 0,
     val mergedMessageCount: Int = 0,
     val candidateCount: Int = 0,
+    val candidateSource: String = "暂无",
     val usedOcr: Boolean = false,
     val usedLocalFallback: Boolean = false,
     val lastFailure: String? = null,
@@ -76,7 +77,8 @@ object OverlayDiagnosticsStore {
 
     fun onCandidates(
         count: Int,
-        usedLocalFallback: Boolean
+        usedLocalFallback: Boolean,
+        candidateSource: String
     ) {
         update(
             phase = OverlayRunPhase.CANDIDATE_READY,
@@ -85,8 +87,9 @@ object OverlayDiagnosticsStore {
             } else {
                 "LLM 已返回候选"
             },
-            step = "候选：count=$count, localFallback=$usedLocalFallback",
+            step = "候选：count=$count, source=$candidateSource, localFallback=$usedLocalFallback",
             candidateCount = count,
+            candidateSource = candidateSource,
             usedLocalFallback = usedLocalFallback,
             lastFailure = null
         )
@@ -125,6 +128,7 @@ object OverlayDiagnosticsStore {
         ocrMessageCount: Int? = null,
         mergedMessageCount: Int? = null,
         candidateCount: Int? = null,
+        candidateSource: String? = null,
         usedOcr: Boolean? = null,
         usedLocalFallback: Boolean? = null,
         lastFailure: String? = _state.value.lastFailure
@@ -137,6 +141,7 @@ object OverlayDiagnosticsStore {
             ocrMessageCount = ocrMessageCount ?: current.ocrMessageCount,
             mergedMessageCount = mergedMessageCount ?: current.mergedMessageCount,
             candidateCount = candidateCount ?: current.candidateCount,
+            candidateSource = candidateSource ?: current.candidateSource,
             usedOcr = usedOcr ?: current.usedOcr,
             usedLocalFallback = usedLocalFallback ?: current.usedLocalFallback,
             lastFailure = lastFailure,
@@ -147,4 +152,3 @@ object OverlayDiagnosticsStore {
 
     private const val MAX_STEPS = 16
 }
-

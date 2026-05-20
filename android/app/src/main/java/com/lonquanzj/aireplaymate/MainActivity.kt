@@ -95,6 +95,8 @@ import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsStore
+import com.lonquanzj.aireplaymate.overlay.OverlayServiceState
+import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
@@ -129,12 +131,15 @@ class MainActivity : ComponentActivity() {
                     },
                     onStartOverlayService = {
                         if (Settings.canDrawOverlays(this)) {
+                            OverlayServiceStateStore.onStartRequested()
                             startService(Intent(this, OverlayButtonService::class.java))
                         } else {
+                            OverlayServiceStateStore.onMissingPermission()
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                         }
                     },
                     onStopOverlayService = {
+                        OverlayServiceStateStore.onStopped("已请求停止 AI 气泡")
                         stopService(Intent(this, OverlayButtonService::class.java))
                     },
                     loadPermissionSnapshot = { readPermissionSnapshot(this) },
@@ -173,6 +178,7 @@ private fun MainScreen(
     val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
     val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
     val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
+    val overlayServiceState by OverlayServiceStateStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
@@ -376,6 +382,7 @@ private fun MainScreen(
 
                 PermissionStatusSection(
                     permissionSnapshot = permissionSnapshot,
+                    overlayServiceState = overlayServiceState,
                     onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                     onOpenOverlaySettings = onOpenOverlaySettings,
                     onStartOverlayService = onStartOverlayService,
@@ -581,6 +588,7 @@ private fun HeroCard(
 @Composable
 private fun PermissionStatusSection(
     permissionSnapshot: PermissionSnapshot,
+    overlayServiceState: OverlayServiceState,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
     onStartOverlayService: () -> Unit,
@@ -610,12 +618,16 @@ private fun PermissionStatusSection(
             PermissionCard(
                 title = "悬浮窗权限",
                 enabled = permissionSnapshot.overlayEnabled,
-                description = if (permissionSnapshot.overlayEnabled) {
-                    "已授权，可启动微信里的 AI 小气泡。"
-                } else {
-                    "需要授权后才能在微信上方显示触发入口。"
-                },
-                buttonText = if (permissionSnapshot.overlayEnabled) "启动气泡" else "去设置",
+                description = overlayPermissionDescription(
+                    permissionSnapshot = permissionSnapshot,
+                    overlayServiceState = overlayServiceState
+                ),
+                statusRows = listOf(
+                    "服务状态" to overlayServiceState.status.label,
+                    "气泡视图" to if (overlayServiceState.bubbleVisible) "已挂载" else "未挂载",
+                    "更新时间" to formatTimestamp(overlayServiceState.updatedAtMillis)
+                ),
+                buttonText = if (permissionSnapshot.overlayEnabled) "启动/刷新气泡" else "去设置",
                 onClick = if (permissionSnapshot.overlayEnabled) {
                     onStartOverlayService
                 } else {
@@ -629,6 +641,21 @@ private fun PermissionStatusSection(
     }
 }
 
+private fun overlayPermissionDescription(
+    permissionSnapshot: PermissionSnapshot,
+    overlayServiceState: OverlayServiceState
+): String {
+    if (!permissionSnapshot.overlayEnabled) {
+        return "需要授权后才能在微信上方显示触发入口。"
+    }
+
+    return when {
+        overlayServiceState.bubbleVisible -> "已授权，AI 小气泡正在显示。若微信里看不到，可点“启动/刷新气泡”重新挂载。"
+        overlayServiceState.updatedAtMillis > 0L -> "${overlayServiceState.message}。若没有小气泡，点“启动/刷新气泡”恢复。"
+        else -> "已授权，但还未启动 AI 小气泡。点“启动/刷新气泡”后切回微信单聊页使用。"
+    }
+}
+
 @Composable
 private fun PermissionCard(
     title: String,
@@ -636,6 +663,7 @@ private fun PermissionCard(
     description: String,
     buttonText: String,
     onClick: () -> Unit,
+    statusRows: List<Pair<String, String>> = emptyList(),
     secondaryButtonText: String? = null,
     onSecondaryClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -679,6 +707,10 @@ private fun PermissionCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            statusRows.forEach { (label, value) ->
+                StatusRow(label = label, value = value)
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
@@ -835,6 +867,10 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
                 StatusRow(
                     label = "候选数",
                     value = debugState.candidateCount.toString()
+                )
+                StatusRow(
+                    label = "候选来源",
+                    value = debugState.candidateSource
                 )
                 StatusRow(
                     label = "使用 OCR",
@@ -1867,6 +1903,7 @@ private fun buildOverlayDebugSnapshot(debugState: OverlayDiagnosticsState): Stri
         appendLine("ocrMessageCount=${debugState.ocrMessageCount}")
         appendLine("mergedMessageCount=${debugState.mergedMessageCount}")
         appendLine("candidateCount=${debugState.candidateCount}")
+        appendLine("candidateSource=${debugState.candidateSource}")
         appendLine("usedOcr=${debugState.usedOcr}")
         appendLine("usedLocalFallback=${debugState.usedLocalFallback}")
         appendLine("lastFailure=${debugState.lastFailure ?: "N/A"}")
