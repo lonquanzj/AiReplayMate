@@ -19,6 +19,8 @@
    开发环境、构建方式、真机调试、当前可验证内容。
 6. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
    当前仓库真实进度、Now / Next / Later、近期建议。
+7. [CODE_REVIEW.md](/home/percy/AiReplayMate/docs/CODE_REVIEW.md)
+   面向当前阶段的 Code Review 基线，覆盖 MVP 边界、架构分层、微信适配、自动填入、安全与验证要求。
 
 推荐阅读顺序：
 
