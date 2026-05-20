@@ -13,6 +13,7 @@
 - 首页可展示真实无障碍调试状态与 Demo 会话主链路
 - 已有微信聊天页初判、结构化消息采样、输入框定位与最小 Autofill 尝试
 - 已有最小 ContextBuilder，可整理 Accessibility 上下文后再进入候选生成演示
+- 已有最小 PromptBuilder，可把上下文转换为 OpenAI 兼容请求文本
 - 已有最小 Overlay 悬浮按钮和系统级候选面板，可从微信页直接选择候选并尝试填入
 - 尚未接入 OCR、真实 LLM、Room、DataStore、Hilt、多模块拆分
 

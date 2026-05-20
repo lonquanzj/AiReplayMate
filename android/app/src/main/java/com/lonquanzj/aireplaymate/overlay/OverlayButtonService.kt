@@ -21,14 +21,26 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
+import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
+import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
+import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
+import com.lonquanzj.aireplaymate.prompt.LlmRequest
+import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
+import com.lonquanzj.aireplaymate.settings.AppSettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class OverlayButtonService : Service() {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var candidatePanelView: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
@@ -62,6 +74,7 @@ class OverlayButtonService : Service() {
         }
         overlayView = null
         windowManager = null
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -76,7 +89,9 @@ class OverlayButtonService : Service() {
             setBackgroundColor(0xDD12332F.toInt())
             elevation = 12f
             setOnClickListener {
-                showCandidatePanel(AccessibilityDebugStore.state.value)
+                serviceScope.launch {
+                    showCandidatePanel(AccessibilityDebugStore.state.value)
+                }
             }
         }
 
@@ -144,7 +159,7 @@ class OverlayButtonService : Service() {
         }
     }
 
-    private fun showCandidatePanel(debugState: AccessibilityDebugState) {
+    private suspend fun showCandidatePanel(debugState: AccessibilityDebugState) {
         val blocker = validateTarget(debugState)
         if (blocker != null) {
             Toast.makeText(this, blocker, Toast.LENGTH_SHORT).show()
@@ -161,7 +176,25 @@ class OverlayButtonService : Service() {
             return
         }
 
-        val candidates = generateCandidates(context.messages.lastOrNull { it.role == ChatRole.FRIEND }?.content)
+        val settings = AppSettingsStore.load(this)
+        val llmRequest = DefaultPromptBuilder.build(
+            context = context,
+            settings = settings
+        )
+        Toast.makeText(this, "正在生成候选回复", Toast.LENGTH_SHORT).show()
+        val candidates = OpenAiCompatibleLlmGateway(settings)
+            .generateReplies(llmRequest)
+            .fold(
+                onSuccess = { it.toOverlayCandidates() },
+                onFailure = { error ->
+                    Toast.makeText(
+                        this,
+                        "LLM 不可用，已使用本地兜底：${error.message ?: "未知错误"}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    generateLocalCandidates(context, llmRequest)
+                }
+            )
         removeCandidatePanel()
 
         val panel = LinearLayout(this).apply {
@@ -267,7 +300,11 @@ class OverlayButtonService : Service() {
         return null
     }
 
-    private fun generateCandidates(lastFriendMessage: String?): List<OverlayCandidate> {
+    private fun generateLocalCandidates(
+        context: ChatContext,
+        request: LlmRequest
+    ): List<OverlayCandidate> {
+        val lastFriendMessage = context.messages.lastOrNull { it.role == ChatRole.FRIEND }?.content
         val message = lastFriendMessage.orEmpty()
         val texts = when {
             message.contains("吗") || message.contains("?") || message.contains("？") -> listOf(
@@ -290,7 +327,17 @@ class OverlayButtonService : Service() {
         }
 
         return texts.mapIndexed { index, text ->
-            OverlayCandidate(id = "local_$index", text = text)
+            val requestHash = request.userPrompt.hashCode().toUInt().toString(16)
+            OverlayCandidate(id = "local_${requestHash}_$index", text = text)
+        }
+    }
+
+    private fun List<ReplyCandidate>.toOverlayCandidates(): List<OverlayCandidate> {
+        return map { candidate ->
+            OverlayCandidate(
+                id = candidate.id,
+                text = candidate.text
+            )
         }
     }
 

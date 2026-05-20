@@ -59,6 +59,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -73,6 +75,8 @@ import com.lonquanzj.aireplaymate.demo.DemoScenario
 import com.lonquanzj.aireplaymate.demo.demoScenarios
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
+import com.lonquanzj.aireplaymate.prompt.AppSettings
+import com.lonquanzj.aireplaymate.settings.AppSettingsStore
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.SessionState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
@@ -109,7 +113,9 @@ class MainActivity : ComponentActivity() {
                     onStopOverlayService = {
                         stopService(Intent(this, OverlayButtonService::class.java))
                     },
-                    loadPermissionSnapshot = { readPermissionSnapshot(this) }
+                    loadPermissionSnapshot = { readPermissionSnapshot(this) },
+                    loadAppSettings = { AppSettingsStore.load(this) },
+                    saveAppSettings = { AppSettingsStore.save(this, it) }
                 )
             }
         }
@@ -123,13 +129,16 @@ private fun MainScreen(
     onOpenOverlaySettings: () -> Unit,
     onStartOverlayService: () -> Unit,
     onStopOverlayService: () -> Unit,
-    loadPermissionSnapshot: () -> PermissionSnapshot
+    loadPermissionSnapshot: () -> PermissionSnapshot,
+    loadAppSettings: () -> AppSettings,
+    saveAppSettings: (AppSettings) -> Unit
 ) {
     val scenarios = remember { demoScenarios() }
     val sessionManager = remember { DemoSessionManager() }
     val sessionState by sessionManager.state.collectAsState()
     var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
+    var appSettings by remember { mutableStateOf(loadAppSettings()) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
@@ -318,6 +327,14 @@ private fun MainScreen(
                     onOpenOverlaySettings = onOpenOverlaySettings,
                     onStartOverlayService = onStartOverlayService,
                     onStopOverlayService = onStopOverlayService
+                )
+
+                LlmSettingsSection(
+                    settings = appSettings,
+                    onSettingsChange = {
+                        appSettings = it
+                        saveAppSettings(it)
+                    }
                 )
 
                 RealAccessibilitySection(debugState = debugState)
@@ -576,6 +593,70 @@ private fun PermissionCard(
                         Text(secondaryButtonText)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LlmSettingsSection(
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "LLM 设置",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = if (settings.apiKey.isBlank()) {
+                        "未配置 API Key 时，微信悬浮面板会使用本地兜底候选。"
+                    } else {
+                        "已配置 API Key，微信悬浮面板会优先请求 OpenAI 兼容接口。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = settings.apiKey,
+                    onValueChange = { onSettingsChange(settings.copy(apiKey = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    label = { Text("API Key") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+
+                OutlinedTextField(
+                    value = settings.baseUrl,
+                    onValueChange = { onSettingsChange(settings.copy(baseUrl = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    label = { Text("Base URL") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                )
+
+                OutlinedTextField(
+                    value = settings.model,
+                    onValueChange = { onSettingsChange(settings.copy(model = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    label = { Text("Model") }
+                )
             }
         }
     }

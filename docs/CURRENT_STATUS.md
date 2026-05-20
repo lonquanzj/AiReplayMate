@@ -14,13 +14,17 @@
 - 已有 Demo 形态的会话主链路状态机
 - 已接入微信聊天页初判、结构化消息采样、输入框定位与最小 `ACTION_SET_TEXT` 填入尝试
 - 已有最小 `ContextBuilder`，可过滤、去重、截断 Accessibility 上下文
+- 已有最小 `PromptBuilder`，可把 `ChatContext` 转换为 OpenAI 兼容请求文本
 - 已有最小 Overlay 悬浮按钮与系统级候选面板，可在微信上方选择候选并尝试填入
-- 尚未打通真实 LLM / OCR 闭环
+- 已有 OpenAI 兼容 `LlmGateway`、响应解析器和首页最小 LLM 设置入口
+- 悬浮面板已支持优先请求真实 LLM，失败或未配置 API Key 时自动回退到本地候选
+- 尚未打通 OCR 闭环
 
 对应代码入口：
 
 - [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:1)
 - [ReplyAccessibilityService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
+- [OpenAiCompatibleLlmGateway.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/llm/OpenAiCompatibleLlmGateway.kt:1)
 - [AndroidManifest.xml](/home/percy/AiReplayMate/android/app/src/main/AndroidManifest.xml:1)
 
 ## 2. 已完成
@@ -36,8 +40,12 @@
 - 已有微信页面分析器 `WeChatAccessibilityAnalyzer`
 - 已有最小 `ChatMessage` / `ChatRole` / `MessageSource` 模型，并能按节点位置粗分“我 / 对方 / 系统”
 - 已有最小 `ChatContext` / `ConversationType` / `DefaultContextBuilder`
+- 已有最小 `AppSettings` / `LlmRequest` / `ReplyCandidate` / `DefaultPromptBuilder`
+- 已有最小 `LlmGateway` / `OpenAiCompatibleLlmGateway` / `LlmResponseParser`
+- 首页已提供 `API Key` / `Base URL` / `Model` 配置，并通过 `SharedPreferences` 持久化
 - 已有最小 `SessionManager` 演示骨架，统一管理校验、提取、候选、填入几个阶段
-- 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和本地候选面板
+- 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和候选面板
+- 微信悬浮候选面板已支持真实 LLM 生成，异常时保留本地兜底候选
 - 已有最小 Autofill 尝试链路：定位输入框并执行 `ACTION_SET_TEXT`
 
 ## 3. 未完成
@@ -49,9 +57,7 @@
 - Navigation 完整路由
 - MediaProjection 截图
 - ML Kit OCR
-- PromptBuilder
-- LLM API 集成
-- 基于真实 LLM 的候选生成
+- LLM 请求日志、超时/错误分级与更完整的设置校验
 - Autofill 剪贴板兜底与回读验证
 - DataStore / Room
 - 日志诊断页面
@@ -75,9 +81,9 @@
 
 最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
 
-1. 补齐项目基础设施
-2. 把当前会话骨架从 Demo 推进到真实可复用链路
-3. 补齐真实消息提取、候选生成与 Autofill 降级
+1. 把当前会话骨架从 Demo 推进到真实可复用链路
+2. 补齐 Autofill 回读验证与剪贴板兜底
+3. 增强 LLM 设置、错误诊断和可观测性
 
 对应任务建议：
 
@@ -85,17 +91,18 @@
 - Hilt DI 接入
 - Navigation 骨架
 - `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
-- Accessibility 消息结构化提取
+- Accessibility 消息结构化提取增强
+- LLM 请求状态、错误原因和响应预览诊断
 - `AutofillEngine` 回读验证与剪贴板兜底
 
 ### Next
 
 在主链路骨架稳定后，再接提取和生成能力：
 
-1. Accessibility 消息提取
-2. ContextBuilder
-3. PromptBuilder
-4. LLM Gateway
+1. Autofill 回读验证与剪贴板兜底
+2. LLM 配置校验、请求日志和失败诊断
+3. OCR 兜底
+4. 设置页从最小表单升级为正式页面
 
 这样可以先打通最短闭环：
 

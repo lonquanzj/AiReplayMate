@@ -30,6 +30,7 @@
 - 已有微信聊天页初判、结构化消息采样、输入框定位与最小 `ACTION_SET_TEXT` 尝试
 - 已有 Demo 版 `SessionManager` 状态流骨架和候选面板演示
 - 已有最小 `ContextBuilder`，用于清洗、去重并截断 Accessibility 上下文
+- 已有最小 `PromptBuilder`，用于生成 OpenAI 兼容请求文本
 - 已有最小 Overlay 悬浮按钮和系统级候选面板入口
 - 尚未落地多模块拆分、DI、Room、DataStore、LLM、OCR
 
