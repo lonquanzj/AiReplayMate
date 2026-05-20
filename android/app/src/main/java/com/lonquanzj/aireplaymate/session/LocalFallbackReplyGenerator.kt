@@ -204,6 +204,7 @@ object LocalFallbackReplyGenerator {
             ReplyPersona.DOMINANT_CEO -> map { it.replace("可以啊", "可以").replace("好呀", "好").replace("慢慢", "按舒服的节奏") }
             ReplyPersona.MATURE_UNCLE -> map { it.replace("有点", "还挺").replace("晚点", "稍晚一点") }
             ReplyPersona.WARM_GENTLE -> this
+            ReplyPersona.ZUOAN_MODE -> map { it.replace("可以啊", "可以啊").replace("不好意思", "").replace("麻烦", "").replace("谢谢", "") }
         }
     }
 

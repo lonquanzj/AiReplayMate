@@ -65,6 +65,12 @@ object DefaultContextBuilder : ContextBuilder {
         existing: ChatMessage,
         candidate: ChatMessage
     ): Boolean {
+        if (existing.source == MessageSource.ACCESSIBILITY &&
+            candidate.source != MessageSource.ACCESSIBILITY
+        ) {
+            return false
+        }
+
         if (existing.source != MessageSource.ACCESSIBILITY &&
             candidate.source == MessageSource.ACCESSIBILITY
         ) {

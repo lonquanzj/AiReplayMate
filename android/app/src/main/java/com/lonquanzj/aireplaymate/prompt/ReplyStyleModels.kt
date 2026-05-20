@@ -39,6 +39,11 @@ enum class ReplyPersona(
         id = "warm_gentle",
         label = "细腻暖男",
         promptGuide = "表达温柔细腻、自然真诚、会接住对方情绪，默认保持安全、舒服、不冒进。"
+    ),
+    ZUOAN_MODE(
+        id = "zuoan_mode",
+        label = "祖安模式",
+        promptGuide = "表达直率犀利、吐槽不留情、敢于怼人且不掉线，有个性有脾气。但要保持逻辑清晰和原则性，不刻意贬低、不越过安全底线。"
     );
 
     companion object {

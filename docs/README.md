@@ -5,7 +5,7 @@
 当前建议只把下面 4 份文档视为主入口：
 
 1. [AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)
-   AI 阅读顺序、文档优先级、常见误区、后续合并建议。
+   AI 阅读顺序、文档优先级、代码入口、常见需求改动路径与验证清单。
 2. [PRD.md](/home/percy/AiReplayMate/docs/PRD.md)
    产品目标、范围、非目标、成功指标。
 3. [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md)
@@ -16,7 +16,7 @@
 补充文档：
 
 5. [DEV_SETUP.md](/home/percy/AiReplayMate/docs/DEV_SETUP.md)
-   开发环境、构建方式、真机调试、当前可验证内容。
+   开发环境、构建方式、真机调试和当前真实可验证链路。
 6. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
    当前仓库真实进度、Now / Next / Later、近期建议。
 7. [CODE_REVIEW.md](/home/percy/AiReplayMate/docs/CODE_REVIEW.md)

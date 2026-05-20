@@ -1,193 +1,236 @@
 # 当前开发状态 — AiReplayMate
 
-> 这份文档回答两个问题：仓库现在实际做到哪里了？接下来最应该做什么？
+> 这份文档回答两个问题：仓库现在实际做到哪里了？接下来最值得继续推进什么？
 
-## 1. 当前代码快照
+## 1. 一句话结论
 
-截至当前仓库状态，Android 侧仍是早期骨架：
+仓库当前已经不是“Android 空骨架”，而是已经具备一条可运行的微信辅助回复 MVP 主链路：
 
-- 仅有 `android/app` 单模块
-- 已有 Compose 首页
-- 已注册 `ReplyAccessibilityService`
-- 已有无障碍设置、悬浮窗设置两个快捷入口
-- 已声明基础权限：悬浮窗、通知、前台服务
-- 已有 Demo 形态的会话主链路状态机
-- 已接入微信聊天页初判、结构化消息采样、输入框定位与最小 `ACTION_SET_TEXT` 填入尝试
-- 已有最小 `ContextBuilder`，可过滤、去重、截断 Accessibility 上下文
-- 已有最小 `PromptBuilder`，可把 `ChatContext` 转换为 OpenAI 兼容请求文本
-- 已有最小 Overlay 悬浮按钮与系统级候选面板，可在微信上方选择候选并尝试填入
-- 已有 OpenAI 兼容 `LlmGateway`、响应解析器和首页最小 LLM 设置入口
-- 已有 LLM 回复风格 v1：多角色、话术宝典、润色表达，并与首页 Demo、真实悬浮窗和本地兜底候选贯通；其中默认回复、话术宝典、润色表达是三种独立能力
-- 悬浮面板已支持优先请求真实 LLM，失败或未配置 API Key 时自动回退到本地候选
-- 已有悬浮窗真实触发诊断，可记录页面校验、上下文整理、OCR 兜底、LLM、本地兜底、候选和填入阶段
-- 悬浮窗点击后已有生成中提示面板，AI 气泡会进入加载态，并会阻止重复并发触发
-- 候选面板已显示候选来源：LLM、本地兜底，以及是否包含 OCR 上下文
-- 首页悬浮窗权限卡片已显示气泡服务状态、气泡视图挂载状态和更新时间，并提供“启动/刷新气泡”
-- 已新增真实会话执行器 `RealReplySessionRunner`，统一承接页面校验、上下文整理、OCR 兜底、LLM 请求和本地候选兜底
-- 已新增共享 `LocalFallbackReplyGenerator`，首页 Demo 与真实微信链路的本地兜底候选已复用同一套规则
-- 已有 OCR 兜底入口、状态模型、诊断 UI、MediaProjection 截图授权入口、测试截图数据流和 ML Kit 中文 OCR 识别引擎
+- 首页可配置 LLM、风格、OCR、悬浮窗和诊断能力
+- 微信悬浮气泡可真实触发上下文整理、OCR 兜底、LLM 生成和本地兜底
+- 候选可在悬浮面板中展示并尝试填入输入框
+- 默认不自动发送
 
-对应代码入口：
+同时，它也还没有进入“架构稳定、功能完备”的阶段，仍然处于 MVP 闭环已打通、工程化仍在继续补强的状态。
 
-- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:1)
+## 2. 当前真实进度
+
+### 已经打通的主链路
+
+当前真实链路已经包括：
+
+1. 通过 `ReplyAccessibilityService` 感知微信页面和聊天页上下文
+2. 通过 `WeChatAccessibilityAnalyzer` 提取和过滤消息样本
+3. 通过 `DefaultContextBuilder` 整理 Accessibility / OCR 消息
+4. 上下文不足时，通过 `MediaProjection + ML Kit OCR` 做兜底识别
+5. 通过 `DefaultPromptBuilder` 构造 OpenAI 兼容请求
+6. 通过 `OpenAiCompatibleLlmGateway` 请求模型接口
+7. 模型异常时切换 `LocalFallbackReplyGenerator`
+8. 通过 `OverlayButtonService` 展示候选、诊断和填入入口
+9. 通过 `AccessibilityActionBridge` 执行最小 Autofill 尝试
+
+这条链路由 [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17) 统一承接。
+
+### 首页能力
+
+首页当前不是静态设置页，而是一个集成调试面板，已经具备：
+
+- 无障碍权限、悬浮窗权限的状态查看和快捷跳转
+- 启动 / 刷新 / 停止悬浮气泡
+- LLM 配置输入、配置校验、测试连接
+- 回复风格配置：快速回复、话术宝典、润色表达
+- Accessibility 调试样本查看与复制
+- OCR 授权、截图链路、识别测试与诊断
+- 悬浮窗真实触发诊断
+- 最近摘要级诊断日志查看、复制和清空
+- Demo 会话状态机与预览区域
+
+首页入口位于 [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)。
+
+### 悬浮窗与回复交互
+
+悬浮能力已经不只是“一个按钮”：
+
+- 已有圆形紫色风格 AI 气泡
+- 短按触发默认风格候选生成
+- 长按打开风格菜单
+- 生成时显示加载态和等待面板
+- 候选面板展示候选来源和候选内容
+- 用户选择候选后尝试填入微信输入框
+- 已通过服务内锁避免并发重复触发
+
+当前悬浮交互入口位于 [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)。
+
+### LLM 与本地兜底
+
+当前 LLM 能力已包括：
+
+- OpenAI 兼容 `Base URL + API Key + Model` 配置
+- 最小请求构造和返回解析
+- 失败分类与摘要诊断
+- 最近请求历史
+- 首页测试连接
+- 悬浮链路里真实使用 LLM 生成候选
+
+本地兜底已不是临时占位：
+
+- 首页 Demo 和真实悬浮链路共用同一套本地兜底生成器
+- 本地兜底会结合当前风格模式、角色、场景和草稿上下文返回候选
+- 候选来源会标明是 `LLM` 还是 `本地兜底`
+
+### OCR 兜底
+
+OCR 目前已经接入真实识别，不再只是留接口：
+
+- 已接入截图授权入口
+- 已实现测试截图数据流
+- 已接入 ML Kit 中文 OCR
+- 已实现 `OcrTextPostProcessor`，用于过滤控件文案、时间和非聊天文本
+- 已支持把 OCR 文本聚合为候选聊天消息
+- 悬浮链路中，当 Accessibility 上下文不足时会真实走 OCR 兜底
+
+### 品牌与界面状态
+
+最近已经补充并接入：
+
+- 应用展示名更新为 `AiChat`
+- Android launcher 图标已替换为新的紫色风格版本
+- 悬浮气泡改成更轻量的圆形图标按钮
+- 候选面板和等待面板已从深色重阴影改为更浅的淡紫系样式
+
+## 3. 当前代码结构
+
+虽然还是单模块 Android 工程，但代码已经按职责做了目录分层：
+
+- `accessibility/`
+  负责微信页面识别、消息提取、输入框查找与填入桥接
+- `context/`
+  负责把 Accessibility / OCR 原始消息整理成 `ChatContext`
+- `llm/`
+  负责 OpenAI 兼容请求、返回解析、LLM 调试状态
+- `ocr/`
+  负责截图授权、截图、OCR 识别和 OCR 后处理
+- `overlay/`
+  负责悬浮气泡、候选面板、进度面板和悬浮诊断
+- `prompt/`
+  负责请求模型、PromptBuilder、回复风格模型
+- `session/`
+  负责 Demo 状态机、真实执行器、本地兜底生成
+- `settings/`
+  负责配置与风格持久化
+- `diagnostics/`
+  负责摘要级日志记录
+
+当前的核心代码入口：
+
+- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
 - [ReplyAccessibilityService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
-- [OpenAiCompatibleLlmGateway.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/llm/OpenAiCompatibleLlmGateway.kt:1)
-- [AndroidManifest.xml](/home/percy/AiReplayMate/android/app/src/main/AndroidManifest.xml:1)
+- [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
+- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
 
-## 2. 已完成
+## 4. 已完成事项
 
-当前可以认为已经完成或至少落了骨架的内容：
+目前可以明确认为“已经落地”的事项包括：
 
-- Android 应用基础工程可编译
-- Compose 入口页已存在
-- Accessibility Service 已注册到 Manifest
-- Accessibility 配置文件已存在
-- App 首页提供系统设置跳转入口
-- 首页可展示真实无障碍调试状态、消息提取调试样本与填入结果
-- 消息提取调试样本已展示角色、置信度、bounds 和文本，方便真机校准 Accessibility 规则
-- 首页已提供 `复制调试样本`，可把页面判定、输入框状态、提取消息和可见文本采样复制到剪贴板
-- 已有微信页面分析器 `WeChatAccessibilityAnalyzer`，并已增强顶部/底部区域过滤、控件文案过滤、重复节点去重和左右角色判定
-- 已有最小 `ChatMessage` / `ChatRole` / `MessageSource` 模型，并能按节点位置粗分“我 / 对方 / 系统”
-- 已有最小 `ChatContext` / `ConversationType` / `DefaultContextBuilder`
-- 已有最小 `AppSettings` / `LlmRequest` / `ReplyCandidate` / `DefaultPromptBuilder`
-- 已有最小 `LlmGateway` / `OpenAiCompatibleLlmGateway` / `LlmResponseParser`
-- 首页已提供 `API Key` / `Base URL` / `Model` 配置，并通过 `SharedPreferences` 持久化
-- 首页已新增 `LLM 回复风格` 卡片，可配置默认回复角色、话术宝典默认场景和润色目标，并通过独立 `SharedPreferences` 持久化；话术宝典和润色目标不会覆盖短按默认回复模式
-- 首页 LLM 设置已支持本地配置校验，可提示空 Key、无效 Base URL、空模型和 http 调试提醒
-- 首页已提供 `测试连接` 按钮，会复用真实 LLM Gateway 发起最小 JSON 候选请求
-- 首页已提供最小 LLM 诊断面板，可展示最近一次请求阶段、接口、模型、HTTP 状态、候选数、错误摘要和返回预览
-- 首页 LLM 诊断面板已支持内存态最近 8 次请求历史，并对失败进行配置、网络、HTTP、解析、候选不足、未知等粗分类
-- 首页 LLM 诊断已支持 `复制 LLM 诊断`，可导出当前请求状态、返回预览、错误摘要和最近请求历史
-- 首页 LLM 诊断已新增可操作建议，可针对配置、网络、HTTP、解析、候选不足等失败给出下一步检查方向，并随复制诊断导出
-- 已新增轻量 `DiagnosticLogStore`，可持久化最近 LLM / OCR / 悬浮窗摘要日志，并在首页复制或清空
-- 诊断日志只保存类型、阶段、摘要、建议、少量元数据和时间，不保存截图、不保存 API Key；Base URL 会去除 query / fragment 后再写入日志
-- 已有最小 `SessionManager` 演示骨架，统一管理校验、提取、候选、填入几个阶段
-- 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和候选面板
-- 微信悬浮候选面板已支持真实 LLM 生成，异常时保留本地兜底候选
-- 微信 AI 气泡已支持短按用默认角色快速生成回复，长按打开轻量菜单；话术宝典为单次独立生成，不看聊天上下文且不影响默认回复；润色表达会读取输入框草稿，生成候选后由用户选择回写
-- 已新增 `OverlayDiagnosticsStore`，用于记录 AI 气泡点击后的真实链路阶段、上下文数量、候选来源、失败原因和步骤 trace
-- 首页已新增 `悬浮窗诊断` 卡片，可展示上一次真实气泡触发结果，并支持复制诊断样本
-- 悬浮窗诊断已记录并展示候选来源，复制诊断时也会导出该字段
-- AI 气泡触发生成时会展示临时进度面板，并用服务内锁避免连续点击重复发起 OCR / LLM 请求
-- 已新增 `OverlayServiceStateStore`，用于上报气泡服务启动中、运行中、缺少权限、已停止等状态，辅助定位“权限已开但没小气泡”
-- `OverlayButtonService` 已开始瘦身，真实业务链路改为调用 `RealReplySessionRunner`，悬浮窗服务主要负责气泡、进度面板、候选面板和填入交互
-- 首页 Demo 首次生成和再次生成候选时，已改为基于整理后的 `ChatContext` 调用共享本地兜底候选生成器
-- 首页 Demo 与真实微信链路已共享 `ReplyStyleProfile`，本地兜底也会按当前角色/场景返回更贴近的候选
-- 首页已新增 `诊断日志` 卡片，可查看最近 5 条摘要、建议和元数据，也可复制最近持久化日志或清空日志
-- 诊断日志复制快照中的时间已从毫秒时间戳改为可读时间，便于真机问题回溯
-- 已有最小 Autofill 尝试链路：定位输入框、执行 `ACTION_SET_TEXT`、回读确认，并在必要时使用剪贴板粘贴兜底
-- Autofill 调试已支持失败分类和步骤 trace，可区分无障碍未连接、内容为空、窗口为空、输入框未找到、SET_TEXT 失败、粘贴失败和回读不一致
-- 已新增最小 `OcrEngine` / `OcrAttemptResult` / `OcrDebugStore`，作为 Accessibility 上下文不足时的 OCR 兜底接入点
-- 首页已新增 `OCR 兜底` 诊断卡片，可展示截图授权、OCR 引擎状态、最近分类、触发原因、步骤 trace 和复制 OCR 诊断
-- 首页已接入系统屏幕截图授权入口，授权结果通过 `OcrCapturePermissionStore` 保存在内存态，供后续 MediaProjection 截图实现使用
-- 首页已新增 `测试截图数据流`，会用 MediaProjection / VirtualDisplay / ImageReader 抓取一帧当前屏幕图像，并只记录尺寸、stride 和步骤，不保存图片
-- 截图授权 token 使用后会标记为 `已使用`，避免重复使用旧 token 导致模糊失败
-- 已接入 `com.google.mlkit:text-recognition-chinese`，可把截图帧转换为 ML Kit `InputImage` 并识别中文文本
-- 首页已新增 `测试 OCR 识别`，识别结果会转换为内存态 `ChatMessage` 并进入 OCR 诊断，不保存截图
-- 微信悬浮候选面板在 Accessibility 上下文不足时，已从占位 OCR 切换为 ML Kit 中文 OCR 兜底
-- 已新增 `OcrTextPostProcessor`，会过滤顶部/底部 UI、常见微信控件、时间日期、数字角标、重复文本，并按同侧相邻文本行聚合为候选聊天气泡
-- OCR 诊断步骤已记录 ML Kit 文本块数、原始行数、保留行数、过滤行数和聚合消息数，方便真机调参
-- Demo 状态机已新增 `OCR 兜底` 阶段；微信悬浮按钮在上下文不足时会先尝试 OCR 兜底，再决定是否提示失败
+- Android 应用可以成功构建 `debug` 包
+- 首页 Compose UI 已具备配置、诊断、调试和 Demo 区
+- Accessibility Service 已注册并参与实际链路
+- 微信页面识别、消息样本提取、输入框定位已接入
+- 最小上下文整理能力已落地
+- OpenAI 兼容 LLM 请求与响应解析已接入
+- LLM 配置校验、测试连接和诊断已落地
+- 回复风格 v1 已落地，并贯穿首页和悬浮链路
+- 真实悬浮链路已优先走 LLM，失败时回退到本地兜底
+- OCR 授权、截图、ML Kit 中文 OCR 和后处理已接入
+- 悬浮窗诊断、OCR 诊断、LLM 诊断与摘要日志已落地
+- Autofill 最小填入链路已接入，并具备失败分类
+- 应用品牌资源和悬浮 UI 样式已做第一轮打磨
 
-## 3. 未完成
+## 5. 仍未完成的部分
 
-以下仍然没有真正落地：
+以下内容仍未真正做完，或者还需要更强的工程化补强：
 
 - 多模块拆分
-- Hilt / DI
-- Navigation 完整路由
-- OCR 结果的聊天气泡分组、角色推断和坐标回填仍需真机样本校准
-- OCR 真机质量校准，包括更多微信控件、引用消息、表情/图片提示、群聊昵称和非聊天文本
-- Accessibility 消息提取规则仍需基于真机样本继续校准，包括群聊/引用/图片/表情等复杂消息形态
-- 气泡启动状态目前为内存态上报，尚未做系统级前台服务通知、进程重启恢复或持久化日志
-- 首页 Demo 链路仍保留独立状态机和演示 UI，尚未完全复用 `RealReplySessionRunner`
-- 诊断日志目前是摘要级持久化，尚未做独立完整日志页面、筛选、搜索或导出文件
-- 悬浮窗诊断详细步骤仍主要是内存态，持久化日志只保存摘要
-- Autofill 多机型兼容性验证与机型差异样本积累
-- DataStore / Room
-- 日志诊断页面
+- DI / Hilt
+- Room / DataStore
+- 更正式的页面路由与设置结构
+- 群聊场景支持
+- 引用消息、图片消息、表情消息等复杂消息提取校准
+- OCR 真机质量继续调参
+- Autofill 多机型兼容性验证
+- 悬浮窗服务恢复、前台通知和更稳的生命周期管理
+- 完整日志页面、筛选、导出文件
+- 更系统化的测试覆盖
 
-## 4. 文档和代码的关系
+## 6. 当前风险与现实边界
 
-当前文档仍然是“目标规格清晰，代码实现早期”的状态，但已经不再是纯空骨架：
+当前最真实的风险点不是“功能完全没有”，而是以下这些地方仍依赖真机反馈：
 
-- [PRD.md](/home/percy/AiReplayMate/docs/PRD.md) 定义了 MVP 范围
-- [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md) 定义了目标架构和接口约束
-- 当前代码已覆盖最小会话演示、微信页面初判和基础 Autofill 尝试，但大部分核心模块仍属于待实现设计
+- 微信 UI 结构和节点语义在不同版本上可能变化
+- OCR 结果很依赖截图质量、字体、主题和消息布局
+- 输入框 Autofill 在不同 ROM 上兼容性不完全一致
+- LLM 输出质量仍依赖提示词和风格参数调优
+- 目前日志偏摘要化，对复杂线上问题的追溯能力还不够
 
-所以后续开发时要注意：
+另外，以下属于刻意边界，而不是缺陷：
 
-- 不要把工程规格误读成“这些模块已经存在”
-- 开发任务应优先选能快速形成闭环的骨架工作
+- 不自动发送
+- 以微信单聊为 MVP 主场景
+- OCR 只在 Accessibility 不足时兜底，而不是默认主链路
 
-## 5. Now / Next / Later
+## 7. 文档与代码的关系
+
+当前仓库里的文档和代码已经比较接近，但仍需注意：
+
+- `PRD.md` 和 `ENGINEERING_SPEC.md` 描述的是目标形态与实现约束
+- 代码已经覆盖一条可运行闭环，但工程层面还没完全追上目标结构
+- `CURRENT_STATUS.md` 应该优先代表“仓库现在真的有哪些能力”
+
+因此后续开发时，建议先以当前代码为准，再用规格文档判断下一步该补什么。
+
+## 8. Now / Next / Later
 
 ### Now
 
-最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
+当前最值得继续做的是“把已经打通的 MVP 链路变得更稳”：
 
-1. 真机验证 LLM 多角色、话术宝典和悬浮窗长按菜单的实际体验，微调文案和菜单密度
-2. 继续让首页 Demo 状态机逐步复用真实会话执行器，减少演示链路和微信真实链路差异
-3. 结合真机使用样本扩充 LLM 失败建议与诊断日志摘要字段
-4. 先维持 OCR 作为可用兜底，后续再基于真机样本慢慢校准
-
-对应任务建议：
-
-- 多角色/话术宝典真机样本调优，补充更贴近用户语气的本地兜底话术
-- 首页 Demo 接入 `RealReplySessionRunner` 的结果模型
-- 诊断日志体验增强：独立日志页面、筛选和导出格式
-- Gradle 多模块拆分
-- Hilt DI 接入
-- Navigation 骨架
-- `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
-- Accessibility 消息结构化提取真机校准
-- LLM 失败建议样本扩充
-- 悬浮窗诊断持久化与真实失败样本归档
-- OCR 真机样本回放、清洗规则调参、气泡分组和角色推断规则（后置）
+1. 继续校准微信消息提取和 OCR 后处理
+2. 增强 Autofill 成功率和失败回退体验
+3. 优化悬浮候选体验和真实真机交互
+4. 让诊断日志对排障更有帮助
 
 ### Next
 
-在主链路骨架稳定后，再接提取和生成能力：
+当主链路更稳定后，建议推进：
 
-1. 收集真机 OCR 诊断样本，校准过滤规则和底部输入区比例
-2. 增强 OCR 气泡分组，覆盖多行长消息、引用消息、图片/表情提示和群聊昵称
-3. OCR 与 Accessibility 上下文合并时的来源、置信度和降级提示
-4. 设置页从最小表单升级为正式页面
-
-这样可以先打通最短闭环：
-
-- 页面识别
-- 抽取最近消息
-- 生成候选
-- 面板展示
-- 选择后填入
+1. 把单模块工程拆成更清晰的模块边界
+2. 引入更稳的配置与状态持久化方案
+3. 把 Demo 链路和真实链路继续收敛
+4. 开始沉淀更系统的测试和机型兼容性样本
 
 ### Later
 
-这些能力适合在基础链路稳定后再补：
+基础稳定后再考虑：
 
-- OCR 真机识别质量优化
-- Room / DataStore
-- 日志诊断页面
-- 厂商兼容性适配
-- 候选历史与体验优化
+1. 群聊支持
+2. 更丰富的候选历史与体验增强
+3. 更完整的日志中心
+4. 更强的厂商兼容适配
 
-## 6. 推荐的最近两周目标
+## 9. 最近建议
 
-如果按“先跑通最短 MVP 闭环”的思路，建议目标是：
+如果只选几个最值得做的近一步任务，我会建议：
 
-1. 从单模块骨架过渡到可维护的模块结构。
-2. 完成微信单聊页识别。
-3. 完成输入框定位与最小 Autofill 骨架。
-4. 留出可插拔的上下文提取和 LLM 接口。
+1. 真机补样本，继续调 Accessibility 和 OCR 规则
+2. 把 Autofill 失败链路做得更清晰、更稳
+3. 提升悬浮窗服务的生命周期稳定性
+4. 为 `session / accessibility / ocr / llm` 补最小单元测试
 
-这会比一开始就接 OCR、日志、历史记录更稳，因为它先解决了主链路最硬的集成点。
+## 10. 当前默认假设
 
-## 7. 当前开发假设
+这份状态文档默认基于以下前提：
 
-这份状态文档默认采用以下假设：
-
-- MVP 目标不变：微信单聊、辅助回复、不自动发送
-- Android 最低版本保持 `minSdk 29`
-- 当前仓库尚未进入“边做边重构”的复杂阶段
-- 近期最重要的是形成第一条可运行主链路，而不是补全所有配套能力
+- MVP 仍然只聚焦微信单聊辅助回复
+- 默认不自动发送
+- Android 最低版本维持 `minSdk 29`
+- 当前仓库优先目标是“把已有闭环做稳”，而不是马上扩张功能面

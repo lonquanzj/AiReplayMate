@@ -159,15 +159,26 @@ object WeChatAccessibilityAnalyzer {
     }
 
     private fun pickChatInputNode(editableNodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
-        return editableNodes.firstOrNull { node ->
-            val hint = node.hintText?.toString()?.trim().orEmpty()
-            val text = node.text?.toString()?.trim().orEmpty()
-            val className = node.className?.toString().orEmpty()
-            className.contains("EditText") ||
-                hint.contains("输入") ||
-                hint.contains("消息") ||
-                text.contains("输入")
-        } ?: editableNodes.firstOrNull()
+        return editableNodes
+            .maxByOrNull(::chatInputScore)
+            ?: editableNodes.firstOrNull()
+    }
+
+    private fun chatInputScore(node: AccessibilityNodeInfo): Int {
+        val hint = node.hintText?.toString()?.trim().orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val className = node.className?.toString().orEmpty()
+        val bounds = Rect().also(node::getBoundsInScreen)
+
+        var score = 0
+        if (className.contains("EditText")) score += 4
+        if (hint.contains("输入") || hint.contains("消息")) score += 10
+        if (text.contains("输入") || text.contains("消息")) score += 8
+        if (hint.contains("搜索") || text.contains("搜索")) score -= 6
+
+        // 微信聊天输入框通常更靠近底部。
+        score += (bounds.top / 200).coerceAtMost(10)
+        return score
     }
 
     private fun extractMessages(
