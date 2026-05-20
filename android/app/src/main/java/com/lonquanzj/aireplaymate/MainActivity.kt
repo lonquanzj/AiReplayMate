@@ -77,6 +77,8 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
+import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
+import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
 import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.demo.DemoScenario
@@ -119,6 +121,7 @@ private data class PermissionSnapshot(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DiagnosticLogStore.initialize(this)
 
         setContent {
             AiReplayMateTheme {
@@ -179,6 +182,7 @@ private fun MainScreen(
     val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
     val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
     val overlayServiceState by OverlayServiceStateStore.state.collectAsState()
+    val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
@@ -227,6 +231,18 @@ private fun MainScreen(
         val request = overlayTrigger ?: return@LaunchedEffect
         sessionManager.runDemo(selectedScenario, request.debugState)
         OverlayTriggerStore.consume(request.id)
+    }
+
+    LaunchedEffect(llmDebugState.updatedAtMillis) {
+        DiagnosticLogStore.recordLlm(llmDebugState)
+    }
+
+    LaunchedEffect(ocrDebugState.updatedAtMillis) {
+        DiagnosticLogStore.recordOcr(ocrDebugState)
+    }
+
+    LaunchedEffect(overlayDiagnosticsState.updatedAtMillis) {
+        DiagnosticLogStore.recordOverlay(overlayDiagnosticsState)
     }
 
     if (sessionState.showCandidateSheet) {
@@ -390,6 +406,8 @@ private fun MainScreen(
                 )
 
                 OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
+
+                DiagnosticLogSection(logState = diagnosticLogState)
 
                 LlmSettingsSection(
                     settings = appSettings,
@@ -923,6 +941,98 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
 }
 
 @Composable
+private fun DiagnosticLogSection(logState: DiagnosticLogState) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "诊断日志",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "保存最近的 LLM、OCR、悬浮窗摘要日志；不保存截图、不保存 API Key。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                StatusRow(label = "记录数", value = logState.entries.size.toString())
+                StatusRow(label = "更新时间", value = formatTimestamp(logState.updatedAtMillis))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            clipboardManager.setText(
+                                AnnotatedString(DiagnosticLogStore.buildSnapshot())
+                            )
+                            Toast.makeText(context, "已复制诊断日志", Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = logState.entries.isNotEmpty(),
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("复制日志")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            DiagnosticLogStore.clear()
+                            Toast.makeText(context, "已清空诊断日志", Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = logState.entries.isNotEmpty(),
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("清空")
+                    }
+                }
+
+                if (logState.entries.isNotEmpty()) {
+                    Text(
+                        text = "最近记录",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    logState.entries.take(5).forEach { entry ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = "${formatTimestamp(entry.timestampMillis)} ${entry.kind.label}/${entry.title}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "摘要：${entry.summary}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "建议：${entry.hint}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "元数据：${entry.metadata}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -963,6 +1073,10 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                     value = debugState.errorSummary ?: "暂无"
                 )
                 StatusRow(
+                    label = "建议",
+                    value = debugState.recoveryHint
+                )
+                StatusRow(
                     label = "返回预览",
                     value = debugState.responsePreview ?: "暂无"
                 )
@@ -993,7 +1107,7 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                     )
                     debugState.history.take(5).forEach { entry ->
                         Text(
-                            text = "${formatTimestamp(entry.timestampMillis)} ${entry.phase.label}/${entry.category.label}: ${entry.summary}",
+                            text = "${formatTimestamp(entry.timestampMillis)} ${entry.phase.label}/${entry.category.label}: ${entry.summary}；建议：${entry.recoveryHint}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1872,6 +1986,7 @@ private fun buildLlmDebugSnapshot(debugState: LlmDebugState): String {
         appendLine("httpStatus=${debugState.httpStatus ?: "N/A"}")
         appendLine("candidateCount=${debugState.candidateCount}")
         appendLine("errorSummary=${debugState.errorSummary ?: "N/A"}")
+        appendLine("recoveryHint=${debugState.recoveryHint}")
         appendLine("responsePreview=${debugState.responsePreview ?: "N/A"}")
         appendLine()
         appendLine("LLM History:")
@@ -1886,7 +2001,8 @@ private fun buildLlmDebugSnapshot(debugState: LlmDebugState): String {
                         "candidates=${entry.candidateCount} " +
                         "model=${entry.model.ifBlank { "N/A" }} " +
                         "baseUrl=${entry.baseUrl.ifBlank { "N/A" }} " +
-                        "summary=${entry.summary}"
+                        "summary=${entry.summary} " +
+                        "recoveryHint=${entry.recoveryHint}"
                 )
             }
         }
