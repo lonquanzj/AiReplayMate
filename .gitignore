@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+.gradle/
+local.properties
+
+# Build
+build/
+app/build/
+android/.gradle/
+android/build/
+android/app/build/
+
+# Kotlin
+*.class
+out/
+
+# Logs
+logs/
+*.log
+
+# Keystore
+*.jks
+*.keystore
+
+# Env
+.env
+.env.*
+
+# OS
+Thumbs.db
