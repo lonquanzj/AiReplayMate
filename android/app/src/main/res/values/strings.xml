@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AiReplayMate</string>
+    <string name="app_name">AiChat</string>
     <string name="accessibility_service_description">用于读取聊天界面并辅助填入回复内容</string>
 </resources>

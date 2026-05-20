@@ -11,6 +11,8 @@ import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 
 enum class RealReplySessionPhase {
     VALIDATING,
@@ -42,6 +44,8 @@ class RealReplySessionRunner(
     suspend fun run(
         debugState: AccessibilityDebugState,
         settings: AppSettings,
+        styleProfile: ReplyStyleProfile = ReplyStyleProfile(),
+        draftText: String? = null,
         targetApp: String = WECHAT_TARGET_APP,
         conversationType: ConversationType = ConversationType.SINGLE_CHAT,
         onPhase: (RealReplySessionPhase, String) -> Unit = { _, _ -> },
@@ -67,7 +71,9 @@ class RealReplySessionRunner(
             )
         )
 
-        if (!chatContext.enoughForReply) {
+        val requiresChatContext = styleProfile.mode == ReplyStyleMode.QUICK_REPLY
+
+        if (requiresChatContext && !chatContext.enoughForReply) {
             usedOcr = true
             onPhase(RealReplySessionPhase.OCR_FALLBACK, "Accessibility 上下文不足，开始 OCR 兜底")
             val ocrResult = MlKitChineseOcrEngine(context.applicationContext).recognizeChatMessages(
@@ -91,11 +97,15 @@ class RealReplySessionRunner(
             if (!chatContext.enoughForReply) {
                 return Result.failure(IllegalStateException("上下文不足，且 ${ocrResult.message}"))
             }
+        } else if (!requiresChatContext && !chatContext.enoughForReply) {
+            onPhase(RealReplySessionPhase.BUILDING_CONTEXT, "话术宝典无需聊天上下文，直接按场景生成")
         }
 
         val llmRequest = DefaultPromptBuilder.build(
             context = chatContext,
-            settings = settings
+            settings = settings,
+            styleProfile = styleProfile,
+            draftText = draftText
         )
         onPhase(RealReplySessionPhase.REQUESTING_LLM, "正在生成候选回复")
 
@@ -103,18 +113,22 @@ class RealReplySessionRunner(
         var localFallbackReason: String? = null
         var candidateSource = buildCandidateSource(
             isLocalFallback = false,
-            usedOcr = usedOcr || chatContext.messages.any { it.source == MessageSource.OCR }
+            usedOcr = usedOcr || chatContext.messages.any { it.source == MessageSource.OCR },
+            styleProfile = styleProfile
         )
         val candidates = OpenAiCompatibleLlmGateway(settings)
             .generateReplies(llmRequest)
             .fold(
-                onSuccess = { it },
+                onSuccess = { llmCandidates ->
+                    llmCandidates.withStyleTone(styleProfile)
+                },
                 onFailure = { error ->
                     usedLocalFallback = true
                     localFallbackReason = error.message ?: "未知错误"
                     candidateSource = buildCandidateSource(
                         isLocalFallback = true,
-                        usedOcr = usedOcr || chatContext.messages.any { it.source == MessageSource.OCR }
+                        usedOcr = usedOcr || chatContext.messages.any { it.source == MessageSource.OCR },
+                        styleProfile = styleProfile
                     )
                     onPhase(
                         RealReplySessionPhase.LOCAL_FALLBACK,
@@ -122,7 +136,9 @@ class RealReplySessionRunner(
                     )
                     LocalFallbackReplyGenerator.generate(
                         context = chatContext,
-                        seed = llmRequest.userPrompt
+                        styleProfile = styleProfile,
+                        seed = llmRequest.userPrompt,
+                        draftText = draftText
                     )
                 }
             )
@@ -157,10 +173,18 @@ class RealReplySessionRunner(
 
     private fun buildCandidateSource(
         isLocalFallback: Boolean,
-        usedOcr: Boolean
+        usedOcr: Boolean,
+        styleProfile: ReplyStyleProfile
     ): String {
         val base = if (isLocalFallback) "本地兜底" else "LLM"
-        return if (usedOcr) "$base（含 OCR 上下文）" else base
+        val styled = "$base · ${styleProfile.shortLabel}"
+        return if (usedOcr) "$styled（含 OCR 上下文）" else styled
+    }
+
+    private fun List<ReplyCandidate>.withStyleTone(styleProfile: ReplyStyleProfile): List<ReplyCandidate> {
+        return map { candidate ->
+            candidate.copy(tone = candidate.tone ?: styleProfile.shortLabel)
+        }
     }
 
     private companion object {

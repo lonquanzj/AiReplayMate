@@ -102,9 +102,15 @@ import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
+import com.lonquanzj.aireplaymate.prompt.PolishGoal
+import com.lonquanzj.aireplaymate.prompt.ReplyPersona
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
+import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.SessionState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
@@ -174,6 +180,9 @@ private fun MainScreen(
     var testingLlm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var replyStyleProfile by remember(context) {
+        mutableStateOf(ReplyStyleSettingsStore.load(context))
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
     val llmDebugState by LlmDebugStore.state.collectAsState()
@@ -229,7 +238,7 @@ private fun MainScreen(
 
     LaunchedEffect(overlayTrigger?.id) {
         val request = overlayTrigger ?: return@LaunchedEffect
-        sessionManager.runDemo(selectedScenario, request.debugState)
+        sessionManager.runDemo(selectedScenario, request.debugState, replyStyleProfile.asDefaultReply())
         OverlayTriggerStore.consume(request.id)
     }
 
@@ -314,7 +323,7 @@ private fun MainScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            sessionManager.regenerateCandidates(selectedScenario)
+                            sessionManager.regenerateCandidates(selectedScenario, replyStyleProfile.asDefaultReply())
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(18.dp)
@@ -385,7 +394,7 @@ private fun MainScreen(
                     onRunDemo = {
                         if (!sessionState.isRunning) {
                             scope.launch {
-                                sessionManager.runDemo(selectedScenario, debugState)
+                                sessionManager.runDemo(selectedScenario, debugState, replyStyleProfile.asDefaultReply())
                             }
                         }
                     },
@@ -423,6 +432,14 @@ private fun MainScreen(
                             testLlmConnection(appSettings)
                             testingLlm = false
                         }
+                    }
+                )
+
+                ReplyStyleSection(
+                    profile = replyStyleProfile,
+                    onProfileChange = { nextProfile ->
+                        replyStyleProfile = nextProfile
+                        ReplyStyleSettingsStore.save(context, nextProfile)
                     }
                 )
 
@@ -848,6 +865,153 @@ private fun llmSettingsHint(
         settings.apiKey.isBlank() -> "未配置 API Key 时，微信悬浮面板会使用本地兜底候选。"
         else -> "配置看起来可用；可先点测试连接，再到微信单聊页使用悬浮面板。"
     }
+}
+
+@Composable
+private fun ReplyStyleSection(
+    profile: ReplyStyleProfile,
+    onProfileChange: (ReplyStyleProfile) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "LLM 回复风格",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "默认回复只使用角色配置；话术宝典和润色表达是长按气泡里的单次功能，不会覆盖短按默认回复。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                StatusRow(label = "默认回复", value = profile.asDefaultReply().displayLabel)
+
+                Text(
+                    text = "角色",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                ChoiceButtonGrid(
+                    items = ReplyPersona.entries.map { it.id to it.label },
+                    selectedId = profile.persona.id,
+                    onSelect = { personaId ->
+                        onProfileChange(profile.copy(persona = ReplyPersona.fromId(personaId)))
+                    }
+                )
+
+                Text(
+                    text = "话术宝典",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                ChoiceButtonGrid(
+                    items = ReplyStyleCatalog.scenes.map { it.sceneId to "${it.categoryLabel} · ${it.sceneLabel}" },
+                    selectedId = profile.playbookScene?.sceneId ?: ReplyStyleCatalog.defaultScene.sceneId,
+                    onSelect = { sceneId ->
+                        onProfileChange(
+                            profile.copy(
+                                playbookScene = ReplyStyleCatalog.sceneFromId(sceneId)
+                            )
+                        )
+                    }
+                )
+
+                Text(
+                    text = "润色表达",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                ChoiceButtonGrid(
+                    items = PolishGoal.entries.map { it.id to it.label },
+                    selectedId = profile.polishGoal.id,
+                    onSelect = { goalId ->
+                        onProfileChange(
+                            profile.copy(
+                                polishGoal = PolishGoal.fromId(goalId)
+                            )
+                        )
+                    }
+                )
+
+                Text(
+                    text = styleExample(profile),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceButtonGrid(
+    items: List<Pair<String, String>>,
+    selectedId: String,
+    onSelect: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowItems.forEach { (id, label) ->
+                    StyleChoiceButton(
+                        label = label,
+                        selected = id == selectedId,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(id) }
+                    )
+                }
+                if (rowItems.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StyleChoiceButton(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text(label)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text(label)
+        }
+    }
+}
+
+private fun styleExample(profile: ReplyStyleProfile): String {
+    return "短按气泡：按“${profile.persona.label}”生成默认回复；长按气泡：话术宝典按“${profile.playbookScene?.sceneLabel ?: "话术宝典"}”单次出文案，润色会读取输入框草稿并回写候选。"
+}
+
+private fun ReplyStyleProfile.asDefaultReply(): ReplyStyleProfile {
+    return copy(mode = ReplyStyleMode.QUICK_REPLY)
 }
 
 @Composable

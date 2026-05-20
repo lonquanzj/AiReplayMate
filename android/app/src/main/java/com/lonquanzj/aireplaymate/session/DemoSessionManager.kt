@@ -12,6 +12,7 @@ import com.lonquanzj.aireplaymate.demo.DemoCandidate
 import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.demo.DemoScenario
 import com.lonquanzj.aireplaymate.ocr.PlaceholderOcrEngine
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,7 +67,8 @@ class DemoSessionManager {
 
     suspend fun runDemo(
         scenario: DemoScenario,
-        debugState: AccessibilityDebugState
+        debugState: AccessibilityDebugState,
+        styleProfile: ReplyStyleProfile = ReplyStyleProfile()
     ) {
         val current = _state.value
         if (current.isRunning) {
@@ -184,7 +186,7 @@ class DemoSessionManager {
         delay(900)
 
         val nextRound = _state.value.generationRound + 1
-        val candidates = context.toDemoCandidates(scenario, nextRound)
+        val candidates = context.toDemoCandidates(scenario, styleProfile, nextRound)
 
         _state.update {
             it.copy(
@@ -199,7 +201,10 @@ class DemoSessionManager {
         appendLog("已返回 3 条候选，等待用户选择")
     }
 
-    fun regenerateCandidates(scenario: DemoScenario) {
+    fun regenerateCandidates(
+        scenario: DemoScenario,
+        styleProfile: ReplyStyleProfile = ReplyStyleProfile()
+    ) {
         val current = _state.value
         if (current.currentState != SessionState.CANDIDATE_READY) return
 
@@ -212,11 +217,11 @@ class DemoSessionManager {
         )
         _state.update {
             it.copy(
-                candidates = context.toDemoCandidates(scenario, nextRound),
+                candidates = context.toDemoCandidates(scenario, styleProfile, nextRound),
                 generationRound = nextRound
             )
         }
-        appendLog("已重新生成 3 条候选")
+        appendLog("已按 ${styleProfile.displayLabel} 重新生成 3 条候选")
     }
 
     suspend fun selectCandidate(candidate: DemoCandidate) {
@@ -347,12 +352,14 @@ class DemoSessionManager {
 
     private fun ChatContext.toDemoCandidates(
         scenario: DemoScenario,
+        styleProfile: ReplyStyleProfile,
         round: Int
     ): List<DemoCandidate> {
         val seed = "$WECHAT_TARGET_APP:${scenario.id}:$round:" +
             messages.joinToString("|") { it.content }
         return LocalFallbackReplyGenerator.generate(
             context = this,
+            styleProfile = styleProfile,
             seed = seed
         ).map { candidate ->
             DemoCandidate(

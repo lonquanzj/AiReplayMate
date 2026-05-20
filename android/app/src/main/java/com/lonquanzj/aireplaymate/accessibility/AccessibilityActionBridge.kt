@@ -27,6 +27,18 @@ data class AutofillAttemptResult(
     val steps: List<String> = emptyList()
 )
 
+data class InputDraftReadResult(
+    val success: Boolean,
+    val text: String = "",
+    val message: String,
+    val category: AutofillFailureCategory = if (success) {
+        AutofillFailureCategory.NONE
+    } else {
+        AutofillFailureCategory.UNKNOWN
+    },
+    val steps: List<String> = emptyList()
+)
+
 object AccessibilityActionBridge {
     private var serviceRef: WeakReference<ReplyAccessibilityService>? = null
 
@@ -54,5 +66,19 @@ object AccessibilityActionBridge {
         }
 
         return service.performAutofill(text)
+    }
+
+    fun tryReadInputDraft(): InputDraftReadResult {
+        val service = serviceRef?.get()
+        if (service == null) {
+            return InputDraftReadResult(
+                success = false,
+                message = "无障碍服务未连接，无法读取输入框",
+                category = AutofillFailureCategory.SERVICE_DISCONNECTED,
+                steps = listOf("服务连接：失败")
+            )
+        }
+
+        return service.readInputDraft()
     }
 }
