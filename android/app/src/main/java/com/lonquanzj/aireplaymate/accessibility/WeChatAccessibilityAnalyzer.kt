@@ -52,9 +52,9 @@ object WeChatAccessibilityAnalyzer {
                 node.text == "+"
         }
 
-        val title = detectConversationTitle(collectedTexts)
         val inputNode = pickChatInputNode(editableNodes)
-        val messages = extractMessages(collectedTexts, title, rootBounds)
+        val title = detectConversationTitle(collectedTexts)
+        val messages = extractMessages(collectedTexts, title, rootBounds, inputNode)
         val looksLikeChatPage = inputNode != null && (hasChatControl || messages.size >= 2)
 
         val reason = buildString {
@@ -100,6 +100,10 @@ object WeChatAccessibilityAnalyzer {
         if (text.isNotEmpty()) {
             collectedTexts += NodeText(
                 text = text,
+                source = NodeTextSource.TEXT,
+                className = className,
+                isEditable = node.isEditable,
+                isClickable = node.isClickable,
                 left = bounds.left,
                 top = bounds.top,
                 right = bounds.right,
@@ -110,6 +114,10 @@ object WeChatAccessibilityAnalyzer {
         if (description.isNotEmpty()) {
             collectedTexts += NodeText(
                 text = description,
+                source = NodeTextSource.CONTENT_DESCRIPTION,
+                className = className,
+                isEditable = node.isEditable,
+                isClickable = node.isClickable,
                 left = bounds.left,
                 top = bounds.top,
                 right = bounds.right,
@@ -125,7 +133,7 @@ object WeChatAccessibilityAnalyzer {
 
     private fun detectConversationTitle(collectedTexts: List<NodeText>): String? {
         return collectedTexts
-            .filter { it.top in 0..260 }
+            .filter { it.top in 0..260 && !it.isLikelyControl }
             .map { it.text }
             .firstOrNull { text ->
                 text.length in 2..24 &&
@@ -165,25 +173,26 @@ object WeChatAccessibilityAnalyzer {
     private fun extractMessages(
         collectedTexts: List<NodeText>,
         title: String?,
-        rootBounds: Rect
+        rootBounds: Rect,
+        inputNode: AccessibilityNodeInfo?
     ): List<ChatMessage> {
+        val inputBounds = inputNode?.let { Rect().also(it::getBoundsInScreen) }
         val seen = linkedMapOf<String, NodeText>()
 
         collectedTexts
             .sortedBy { it.top }
             .forEach { item ->
                 val text = item.text.trim()
-                if (text.isEmpty()) return@forEach
-                if (text == title) return@forEach
-                if (text in blockedUiTexts) return@forEach
-                if (text.length > 120) return@forEach
-                if (timeRegex.matches(text)) return@forEach
-                if (emojiOnlyRegex.matches(text)) return@forEach
-                seen.putIfAbsent(text, item)
+                if (!item.isMessageCandidate(title, inputBounds, rootBounds)) return@forEach
+                val key = text.normalizedMessageKey()
+                val existing = seen[key]
+                if (existing == null || item.isBetterDuplicateThan(existing)) {
+                    seen[key] = item.copy(text = text)
+                }
             }
 
         return seen.values.toList()
-            .takeLast(8)
+            .takeLast(MAX_EXTRACTED_MESSAGES)
             .mapIndexed { index, item ->
                 val role = inferRole(item, rootBounds)
                 ChatMessage(
@@ -192,7 +201,7 @@ object WeChatAccessibilityAnalyzer {
                     content = item.text,
                     timestamp = null,
                     source = MessageSource.ACCESSIBILITY,
-                    confidence = confidenceForRole(role),
+                    confidence = confidenceFor(item, role),
                     boundsHint = item.boundsHint
                 )
             }
@@ -208,20 +217,32 @@ object WeChatAccessibilityAnalyzer {
         val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return ChatRole.UNKNOWN
         val centerX = item.centerX - rootBounds.left
         val leftRatio = (item.left - rootBounds.left).toFloat() / rootWidth
+        val rightRatio = (item.right - rootBounds.left).toFloat() / rootWidth
         val centerRatio = centerX.toFloat() / rootWidth
 
         return when {
-            leftRatio > 0.42f || centerRatio > 0.58f -> ChatRole.ME
-            centerRatio < 0.52f -> ChatRole.FRIEND
+            item.isCenteredSystemLike(rootBounds) -> ChatRole.SYSTEM
+            rightRatio > 0.66f && centerRatio > 0.48f -> ChatRole.ME
+            leftRatio < 0.40f && centerRatio < 0.58f -> ChatRole.FRIEND
+            centerRatio > 0.60f -> ChatRole.ME
+            centerRatio < 0.50f -> ChatRole.FRIEND
             else -> ChatRole.UNKNOWN
         }
     }
 
-    private fun confidenceForRole(role: ChatRole): Float = when (role) {
-        ChatRole.ME,
-        ChatRole.FRIEND -> 0.72f
-        ChatRole.SYSTEM -> 0.82f
-        ChatRole.UNKNOWN -> 0.45f
+    private fun confidenceFor(
+        item: NodeText,
+        role: ChatRole
+    ): Float {
+        val base = when (role) {
+            ChatRole.ME,
+            ChatRole.FRIEND -> 0.76f
+            ChatRole.SYSTEM -> 0.84f
+            ChatRole.UNKNOWN -> 0.45f
+        }
+        val sourcePenalty = if (item.source == NodeTextSource.CONTENT_DESCRIPTION) 0.08f else 0f
+        val controlPenalty = if (item.isLikelyControl) 0.18f else 0f
+        return (base - sourcePenalty - controlPenalty).coerceIn(0f, 1f)
     }
 
     private fun stableMessageId(
@@ -234,13 +255,71 @@ object WeChatAccessibilityAnalyzer {
 
     private data class NodeText(
         val text: String,
+        val source: NodeTextSource,
+        val className: String,
+        val isEditable: Boolean,
+        val isClickable: Boolean,
         val left: Int,
         val top: Int,
         val right: Int,
         val bottom: Int
     ) {
         val centerX: Int = left + ((right - left) / 2)
+        val width: Int = right - left
         val boundsHint: String = "$left,$top,$right,$bottom"
+        val isLikelyControl: Boolean =
+            isEditable ||
+                className.contains("Button", ignoreCase = true) ||
+                className.contains("ImageView", ignoreCase = true) ||
+                text in blockedUiTexts ||
+                blockedUiTextFragments.any { text.contains(it) }
+    }
+
+    private enum class NodeTextSource {
+        TEXT,
+        CONTENT_DESCRIPTION
+    }
+
+    private fun NodeText.isMessageCandidate(
+        title: String?,
+        inputBounds: Rect?,
+        rootBounds: Rect
+    ): Boolean {
+        val cleanText = text.trim()
+        if (cleanText.isEmpty()) return false
+        if (cleanText == title) return false
+        if (cleanText.length > MAX_MESSAGE_TEXT_LENGTH) return false
+        if (top < rootBounds.top + MIN_MESSAGE_TOP_OFFSET) return false
+        if (inputBounds != null && bottom >= inputBounds.top - INPUT_AREA_PADDING) return false
+        if (isLikelyControl) return false
+        if (timeRegex.matches(cleanText)) return false
+        if (dateRegex.matches(cleanText)) return false
+        if (emojiOnlyRegex.matches(cleanText)) return false
+        if (badgeRegex.matches(cleanText)) return false
+        if (className.contains("TextView", ignoreCase = true).not() &&
+            source == NodeTextSource.CONTENT_DESCRIPTION &&
+            cleanText.length <= 2
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun NodeText.isBetterDuplicateThan(other: NodeText): Boolean {
+        if (source == NodeTextSource.TEXT && other.source == NodeTextSource.CONTENT_DESCRIPTION) return true
+        if (source == other.source && width > other.width) return true
+        return false
+    }
+
+    private fun NodeText.isCenteredSystemLike(rootBounds: Rect): Boolean {
+        val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return false
+        val centerRatio = (centerX - rootBounds.left).toFloat() / rootWidth
+        val widthRatio = width.toFloat() / rootWidth
+        return centerRatio in 0.42f..0.58f && widthRatio < 0.72f && text.length <= 40
+    }
+
+    private fun String.normalizedMessageKey(): String {
+        return whitespaceRegex.replace(trim(), " ")
     }
 
     private val blockedUiTexts = setOf(
@@ -251,12 +330,35 @@ object WeChatAccessibilityAnalyzer {
         "切换到按住说话",
         "切换到键盘",
         "表情",
+        "拍摄",
+        "照片",
+        "位置",
+        "红包",
+        "转账",
+        "收藏",
+        "语音通话",
+        "视频通话",
         "+",
         "微信",
         "返回"
     )
 
+    private val blockedUiTextFragments = listOf(
+        "切换到",
+        "更多",
+        "聊天信息",
+        "添加到通讯录",
+        "消息免打扰"
+    )
+
+    private const val MAX_EXTRACTED_MESSAGES = 12
+    private const val MAX_MESSAGE_TEXT_LENGTH = 180
+    private const val MIN_MESSAGE_TOP_OFFSET = 132
+    private const val INPUT_AREA_PADDING = 24
     private val timeRegex = Regex("^\\d{1,2}:\\d{2}$")
+    private val dateRegex = Regex("^(周[一二三四五六日天]|昨天|今天|前天|\\d{1,2}月\\d{1,2}日).*$")
+    private val badgeRegex = Regex("^\\d{1,3}$")
     private val emojiOnlyRegex = Regex("^[\\p{So}\\p{Cn}]+$")
     private val systemHintRegex = Regex("撤回|以上是|以下是|系统")
+    private val whitespaceRegex = Regex("\\s+")
 }

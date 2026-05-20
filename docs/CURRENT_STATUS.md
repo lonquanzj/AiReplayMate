@@ -37,16 +37,20 @@
 - Accessibility 配置文件已存在
 - App 首页提供系统设置跳转入口
 - 首页可展示真实无障碍调试状态、消息提取预览与填入结果
-- 已有微信页面分析器 `WeChatAccessibilityAnalyzer`
+- 已有微信页面分析器 `WeChatAccessibilityAnalyzer`，并已增强顶部/底部区域过滤、控件文案过滤、重复节点去重和左右角色判定
 - 已有最小 `ChatMessage` / `ChatRole` / `MessageSource` 模型，并能按节点位置粗分“我 / 对方 / 系统”
 - 已有最小 `ChatContext` / `ConversationType` / `DefaultContextBuilder`
 - 已有最小 `AppSettings` / `LlmRequest` / `ReplyCandidate` / `DefaultPromptBuilder`
 - 已有最小 `LlmGateway` / `OpenAiCompatibleLlmGateway` / `LlmResponseParser`
 - 首页已提供 `API Key` / `Base URL` / `Model` 配置，并通过 `SharedPreferences` 持久化
+- 首页 LLM 设置已支持本地配置校验，可提示空 Key、无效 Base URL、空模型和 http 调试提醒
+- 首页已提供 `测试连接` 按钮，会复用真实 LLM Gateway 发起最小 JSON 候选请求
+- 首页已提供最小 LLM 诊断面板，可展示最近一次请求阶段、接口、模型、HTTP 状态、候选数、错误摘要和返回预览
+- 首页 LLM 诊断面板已支持内存态最近 8 次请求历史，并对失败进行配置、网络、HTTP、解析、候选不足、未知等粗分类
 - 已有最小 `SessionManager` 演示骨架，统一管理校验、提取、候选、填入几个阶段
 - 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和候选面板
 - 微信悬浮候选面板已支持真实 LLM 生成，异常时保留本地兜底候选
-- 已有最小 Autofill 尝试链路：定位输入框并执行 `ACTION_SET_TEXT`
+- 已有最小 Autofill 尝试链路：定位输入框、执行 `ACTION_SET_TEXT`、回读确认，并在必要时使用剪贴板粘贴兜底
 
 ## 3. 未完成
 
@@ -57,8 +61,9 @@
 - Navigation 完整路由
 - MediaProjection 截图
 - ML Kit OCR
-- LLM 请求日志、超时/错误分级与更完整的设置校验
-- Autofill 剪贴板兜底与回读验证
+- Accessibility 消息提取真机样本校准，包括群聊/引用/图片/表情等复杂消息形态
+- LLM 诊断日志持久化、导出与更细粒度错误建议
+- Autofill 多机型兼容性验证、失败原因分级与更细日志
 - DataStore / Room
 - 日志诊断页面
 
@@ -82,8 +87,8 @@
 最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
 
 1. 把当前会话骨架从 Demo 推进到真实可复用链路
-2. 补齐 Autofill 回读验证与剪贴板兜底
-3. 增强 LLM 设置、错误诊断和可观测性
+2. 补齐 Autofill 多机型兼容验证与失败原因分级
+3. 增强 Accessibility 真机样本校准和 Autofill 兼容验证
 
 对应任务建议：
 
@@ -91,16 +96,16 @@
 - Hilt DI 接入
 - Navigation 骨架
 - `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
-- Accessibility 消息结构化提取增强
-- LLM 请求状态、错误原因和响应预览诊断
-- `AutofillEngine` 回读验证与剪贴板兜底
+- Accessibility 消息结构化提取真机校准
+- LLM 诊断日志持久化与导出
+- `AutofillEngine` 多机型兼容验证与失败原因分级
 
 ### Next
 
 在主链路骨架稳定后，再接提取和生成能力：
 
-1. Autofill 回读验证与剪贴板兜底
-2. LLM 配置校验、请求日志和失败诊断
+1. Autofill 多机型兼容验证与失败原因分级
+2. Accessibility 真机样本校准
 3. OCR 兜底
 4. 设置页从最小表单升级为正式页面
 

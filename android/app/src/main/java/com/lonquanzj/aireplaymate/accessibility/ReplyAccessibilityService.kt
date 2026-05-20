@@ -1,6 +1,9 @@
 package com.lonquanzj.aireplaymate.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
@@ -82,23 +85,66 @@ class ReplyAccessibilityService : AccessibilityService() {
             return result
         }
 
-        inputNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        inputNode.prepareForTextInput()
 
-        val args = Bundle().apply {
-            putCharSequence(
-                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                trimmed
-            )
+        val setTextSuccess = inputNode.performAction(
+            AccessibilityNodeInfo.ACTION_SET_TEXT,
+            Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    trimmed
+                )
+            }
+        )
+        if (setTextSuccess && isInputTextConfirmed(trimmed)) {
+            val result = AutofillAttemptResult(true, "已通过 ACTION_SET_TEXT 写入并回读确认")
+            AccessibilityDebugStore.onAutofillAttempt(result.message, trimmed)
+            return result
         }
-        val success = inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
 
-        val result = if (success) {
-            AutofillAttemptResult(true, "已尝试通过 ACTION_SET_TEXT 写入输入框")
-        } else {
-            AutofillAttemptResult(false, "ACTION_SET_TEXT 执行失败")
+        val pasteSuccess = pasteViaClipboard(trimmed)
+        val result = when {
+            pasteSuccess && isInputTextConfirmed(trimmed) -> {
+                AutofillAttemptResult(true, "已通过剪贴板粘贴兜底并回读确认")
+            }
+
+            pasteSuccess -> {
+                AutofillAttemptResult(true, "已执行剪贴板粘贴，回读暂未确认，请检查输入框")
+            }
+
+            setTextSuccess -> {
+                AutofillAttemptResult(true, "ACTION_SET_TEXT 已执行，但回读暂未确认，请检查输入框")
+            }
+
+            else -> {
+                AutofillAttemptResult(false, "ACTION_SET_TEXT 与剪贴板粘贴均执行失败")
+            }
         }
         AccessibilityDebugStore.onAutofillAttempt(result.message, trimmed)
         return result
+    }
+
+    private fun AccessibilityNodeInfo.prepareForTextInput() {
+        performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun pasteViaClipboard(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val inputNode = WeChatAccessibilityAnalyzer.findChatInputNode(root) ?: return false
+        inputNode.prepareForTextInput()
+
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(CLIP_LABEL, text))
+        return inputNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+    }
+
+    private fun isInputTextConfirmed(expected: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val inputNode = WeChatAccessibilityAnalyzer.findChatInputNode(root) ?: return false
+        inputNode.refresh()
+        val actual = inputNode.text?.toString()?.trim().orEmpty()
+        return actual == expected || actual.endsWith(expected)
     }
 
     private fun countEditableNodes(node: AccessibilityNodeInfo?): Int {
@@ -150,5 +196,9 @@ class ReplyAccessibilityService : AccessibilityService() {
         AccessibilityEvent.TYPE_VIEW_CLICKED -> "TYPE_VIEW_CLICKED"
         AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> "TYPE_VIEW_TEXT_CHANGED"
         else -> "TYPE_$eventType"
+    }
+
+    private companion object {
+        const val CLIP_LABEL = "AiReplayMate reply"
     }
 }

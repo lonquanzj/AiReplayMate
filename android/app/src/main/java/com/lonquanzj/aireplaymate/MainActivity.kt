@@ -73,10 +73,16 @@ import com.lonquanzj.aireplaymate.demo.DemoAuthor
 import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.demo.DemoScenario
 import com.lonquanzj.aireplaymate.demo.demoScenarios
+import com.lonquanzj.aireplaymate.llm.LlmDebugState
+import com.lonquanzj.aireplaymate.llm.LlmDebugStore
+import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
+import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
+import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
+import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.SessionState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
@@ -139,9 +145,11 @@ private fun MainScreen(
     var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
+    var testingLlm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
+    val llmDebugState by LlmDebugStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
 
     val selectedScenario = remember(selectedScenarioId, scenarios) {
@@ -331,11 +339,22 @@ private fun MainScreen(
 
                 LlmSettingsSection(
                     settings = appSettings,
+                    validation = AppSettingsValidator.validate(appSettings),
+                    isTesting = testingLlm,
                     onSettingsChange = {
                         appSettings = it
                         saveAppSettings(it)
+                    },
+                    onTestConnection = {
+                        scope.launch {
+                            testingLlm = true
+                            testLlmConnection(appSettings)
+                            testingLlm = false
+                        }
                     }
                 )
+
+                LlmDiagnosticsSection(debugState = llmDebugState)
 
                 RealAccessibilitySection(debugState = debugState)
 
@@ -601,7 +620,10 @@ private fun PermissionCard(
 @Composable
 private fun LlmSettingsSection(
     settings: AppSettings,
-    onSettingsChange: (AppSettings) -> Unit
+    validation: AppSettingsValidation,
+    isTesting: Boolean,
+    onSettingsChange: (AppSettings) -> Unit,
+    onTestConnection: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -619,11 +641,7 @@ private fun LlmSettingsSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (settings.apiKey.isBlank()) {
-                        "未配置 API Key 时，微信悬浮面板会使用本地兜底候选。"
-                    } else {
-                        "已配置 API Key，微信悬浮面板会优先请求 OpenAI 兼容接口。"
-                    },
+                    text = llmSettingsHint(settings, validation),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -657,6 +675,107 @@ private fun LlmSettingsSection(
                     singleLine = true,
                     label = { Text("Model") }
                 )
+
+                validation.errors.forEach { error ->
+                    Text(
+                        text = "错误：$error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                validation.warnings.forEach { warning ->
+                    Text(
+                        text = "提醒：$warning",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                Button(
+                    onClick = onTestConnection,
+                    enabled = validation.canRequest && !isTesting,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isTesting) "测试中..." else "测试连接")
+                }
+            }
+        }
+    }
+}
+
+private fun llmSettingsHint(
+    settings: AppSettings,
+    validation: AppSettingsValidation
+): String {
+    return when {
+        validation.errors.isNotEmpty() -> "请先修正配置错误；未配置可用 LLM 时，微信悬浮面板会使用本地兜底候选。"
+        settings.apiKey.isBlank() -> "未配置 API Key 时，微信悬浮面板会使用本地兜底候选。"
+        else -> "配置看起来可用；可先点测试连接，再到微信单聊页使用悬浮面板。"
+    }
+}
+
+@Composable
+private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "LLM 诊断",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StatusRow(label = "阶段", value = debugState.phase.label)
+                StatusRow(label = "分类", value = debugState.failureCategory.label)
+                StatusRow(label = "接口", value = debugState.baseUrl.ifBlank { "暂无" })
+                StatusRow(label = "模型", value = debugState.model.ifBlank { "暂无" })
+                StatusRow(
+                    label = "HTTP",
+                    value = debugState.httpStatus?.toString() ?: "暂无"
+                )
+                StatusRow(
+                    label = "候选数",
+                    value = if (debugState.candidateCount > 0) {
+                        debugState.candidateCount.toString()
+                    } else {
+                        "暂无"
+                    }
+                )
+                StatusRow(
+                    label = "错误",
+                    value = debugState.errorSummary ?: "暂无"
+                )
+                StatusRow(
+                    label = "返回预览",
+                    value = debugState.responsePreview ?: "暂无"
+                )
+                StatusRow(
+                    label = "更新时间",
+                    value = formatTimestamp(debugState.updatedAtMillis)
+                )
+
+                if (debugState.history.isNotEmpty()) {
+                    Text(
+                        text = "最近请求",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    debugState.history.take(5).forEach { entry ->
+                        Text(
+                            text = "${formatTimestamp(entry.timestampMillis)} ${entry.phase.label}/${entry.category.label}: ${entry.summary}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
@@ -1159,6 +1278,28 @@ private fun readPermissionSnapshot(context: Context): PermissionSnapshot {
     return PermissionSnapshot(
         accessibilityEnabled = accessibilityEnabled,
         overlayEnabled = Settings.canDrawOverlays(context)
+    )
+}
+
+private suspend fun testLlmConnection(settings: AppSettings) {
+    val validation = AppSettingsValidator.validate(settings)
+    if (!validation.canRequest) {
+        LlmDebugStore.onSkipped(
+            baseUrl = settings.baseUrl,
+            model = settings.model,
+            reason = validation.errors.joinToString("；")
+        )
+        return
+    }
+
+    OpenAiCompatibleLlmGateway(settings).generateReplies(
+        LlmRequest(
+            systemPrompt = "你是 AiReplayMate 的连接测试助手，只用于确认接口可用。",
+            userPrompt = "请严格返回 JSON：{\"candidates\":[{\"text\":\"连接测试成功\"}]}",
+            temperature = 0f,
+            maxTokens = 80,
+            candidateCount = 1
+        )
     )
 }
 

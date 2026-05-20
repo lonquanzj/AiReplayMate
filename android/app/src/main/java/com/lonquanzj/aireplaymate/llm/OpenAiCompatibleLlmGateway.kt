@@ -3,6 +3,7 @@ package com.lonquanzj.aireplaymate.llm
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
+import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -16,12 +17,23 @@ class OpenAiCompatibleLlmGateway(
     private val settings: AppSettings
 ) : LlmGateway {
     override suspend fun generateReplies(request: LlmRequest): Result<List<ReplyCandidate>> {
-        if (settings.apiKey.isBlank()) {
-            return Result.failure(IllegalStateException("未配置 API Key"))
+        val validation = AppSettingsValidator.validate(settings)
+        if (!validation.canRequest) {
+            val error = IllegalStateException(validation.errors.joinToString("；"))
+            LlmDebugStore.onSkipped(
+                baseUrl = settings.baseUrl,
+                model = settings.model,
+                reason = error.message.orEmpty()
+            )
+            return Result.failure(error)
         }
 
         return withContext(Dispatchers.IO) {
             runCatching {
+                LlmDebugStore.onRequestStarted(
+                    baseUrl = settings.chatCompletionsUrl(),
+                    model = settings.model
+                )
                 val connection = (URL(settings.chatCompletionsUrl()).openConnection() as HttpURLConnection)
                     .apply {
                         requestMethod = "POST"
@@ -38,6 +50,10 @@ class OpenAiCompatibleLlmGateway(
                 }
 
                 val responseText = connection.readResponseText()
+                LlmDebugStore.onHttpReturned(
+                    status = connection.responseCode,
+                    responseText = responseText
+                )
                 if (connection.responseCode !in 200..299) {
                     throw IllegalStateException("LLM 请求失败：HTTP ${connection.responseCode} ${responseText.take(160)}")
                 }
@@ -56,8 +72,12 @@ class OpenAiCompatibleLlmGateway(
                 if (candidates.size < request.candidateCount) {
                     throw IllegalStateException("LLM 返回候选不足")
                 }
+                LlmDebugStore.onParsed(
+                    candidateCount = candidates.size,
+                    contentPreview = content
+                )
                 candidates
-            }
+            }.onFailure(LlmDebugStore::onFailed)
         }
     }
 
