@@ -1,62 +1,68 @@
-# PRD - AiReplayMate
+# PRD — AiReplayMate（产品需求文档）
 
-## 1. Product Overview
+## 1. 产品概述
 
-AiReplayMate is an Android AI-assisted reply tool for chat scenarios. It is designed to:
+AiReplayMate 是一个 Android AI 辅助回复工具，专为聊天场景设计。用户在当前聊天页面上触发后，工具自动提取聊天上下文，调用 LLM 生成回复候选，用户选择后自动填入输入框，最终由用户手动发送。
 
-1. Read the current chat context
-2. Generate AI reply candidates
-3. Autofill the selected reply into the input box
-4. Keep the user in control of sending
+## 2. 核心定位
 
-## 2. Core Positioning
+- **辅助，而非自动聊天** — 用户始终保持最终控制权
+- **半自动，非无人值守** — 仅辅助生成和填入，不替代用户发送
+- **安全优先** — 默认不自动发送，杜绝意外发出消息
+- **MVP 以微信单聊为切入点** — 先解决高频刚需场景
 
-- Assistance, not full auto-chat
-- Semi-automatic, not unattended operation
-- Safety first, no auto-send by default
-- WeChat one-to-one chat as the MVP entry point
+## 3. 目标用户
 
-## 3. Target Users
+- 商务沟通用户（大量微信消息需要快速回复）
+- 客服和运营人员（需标准化回复 + 效率提升）
+- 高频聊天用户（日常需要快速、优质回复）
+- 希望回复更得体、更专业的用户
 
-- Business communication users
-- Customer support and operations staff
-- High-frequency chat users
-- Users who want faster and better replies
+## 4. MVP 范围
 
-## 4. MVP Scope
+- ✅ 微信单聊页面识别与支持
+- ✅ 悬浮触发按钮（FloatingButton）
+- ✅ 基于 AccessibilityService 的消息提取
+- ✅ 截图 + OCR 兜底方案
+- ✅ LLM 生成 3 条回复候选
+- ✅ 自动填入输入框（用户确认后发送）
+- ✅ 设置页面（API Key / 模型选择 / 开关）
+- ✅ 基本日志和诊断面板
 
-- WeChat one-to-one chat page
-- Floating trigger button
-- Accessibility-based message extraction
-- OCR fallback
-- LLM generation of 3 reply candidates
-- Autofill into input box
-- Settings page
-- Basic logging and diagnostics
+## 5. 核心流程
 
-## 5. Core Flow
+1. 用户在聊天页面点击悬浮按钮触发
+2. AccessibilityService 尝试提取聊天内容
+3. 提取失败或数据不足 → 回退到截图 + OCR
+4. 将最近聊天上下文组装后发送给 LLM
+5. LLM 返回 3 条候选回复
+6. 用户在候选面板中选择一条
+7. AutofillEngine 将选中文字填入输入框
+8. 用户自行审阅后点击发送
 
-1. User taps the floating trigger on a chat page
-2. The app tries to read chat content via AccessibilityService
-3. If extraction fails, it falls back to screenshot + OCR
-4. Recent chat context is sent to the LLM
-5. The LLM returns 3 candidate replies
-6. The user selects one reply
-7. The app autofills the reply into the input box
-8. The user manually reviews and sends it
+## 6. 非目标（MVP 不做的）
 
-## 6. Non-goals
+- 自动发送消息
+- 复杂群聊理解（V1.2 再考虑）
+- Root / Hook / 注入方案
+- 访问非公开 App 协议
+- 无人值守自动聊天机器人
+- 跨平台（仅 Android）
 
-- Auto-send
-- Complex group chat understanding in MVP
-- Root / Hook / Injection
-- Accessing private app protocols
-- Unattended auto-chatting
+## 7. 成功指标
 
-## 7. Success Criteria
+| 指标 | 目标 |
+|------|------|
+| 悬浮触发成功率 | ≥ 99%（任意微信页面可触发） |
+| 聊天内容提取成功率 | ≥ 90%（纯 Accessibility） |
+| OCR 兜底后总提取成功率 | ≥ 98% |
+| 候选回复可用率（用户选择率） | ≥ 70% |
+| 自动填入成功率 | ≥ 95% |
+| 从触发到展示候选的平均耗时 | ≤ 3 秒 |
 
-- Reliable triggering in supported chat pages
-- Stable chat context extraction
-- Useful candidate replies
-- Safe autofill with user confirmation
-- Low-friction user experience
+## 8. 隐私与安全
+
+- LLM API 调用默认使用用户自备 Key，数据不经第三方中间层
+- OCR 截图中不保存原始图片到本地存储
+- 所有日志可一键清除
+- 不含任何埋点 / 统计分析 SDK

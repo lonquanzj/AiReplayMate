@@ -10,11 +10,11 @@ AiReplayMate is an Android AI-assisted reply project for the Route B approach.
 - Do not auto-send by default
 
 ## Documentation
+- docs/README.md
+- docs/AI_DEV_GUIDE.md
 - docs/PRD.md
-- docs/TDD.md
-- docs/ARCHITECTURE.md
-- docs/ROADMAP.md
-- docs/TASK_BREAKDOWN.md
+- docs/ENGINEERING_SPEC.md
+- docs/DELIVERY_PLAN.md
 
 ## Android Project
 The Android skeleton is under the `android/` directory.
