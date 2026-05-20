@@ -165,9 +165,6 @@ class RealReplySessionRunner(
         if (!debugState.looksLikeChatPage) {
             return "当前不像微信单聊页"
         }
-        if (!debugState.inputNodeFound) {
-            return "未找到微信输入框"
-        }
         return null
     }
 

@@ -63,6 +63,56 @@ class ReplyAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    fun inspectCurrentWindow(): WindowInspectionSnapshot {
+        val root = rootInActiveWindow
+        if (root == null) {
+            return WindowInspectionSnapshot(
+                success = false,
+                state = AccessibilityDebugStore.state.value.copy(
+                    serviceConnected = true,
+                    updatedAtMillis = System.currentTimeMillis()
+                ),
+                message = "当前窗口为空，暂时无法刷新"
+            )
+        }
+
+        val packageName = root.packageName?.toString().orEmpty()
+        val className = root.className?.toString().orEmpty()
+        val editableNodeCount = countEditableNodes(root)
+        val visibleTexts = collectVisibleTexts(root).take(6)
+        val inspection = WeChatAccessibilityAnalyzer.inspect(
+            packageName = packageName,
+            root = root
+        )
+        val state = AccessibilityDebugState(
+            serviceConnected = true,
+            lastEventName = "主动刷新",
+            packageName = packageName,
+            className = className,
+            editableNodeCount = editableNodeCount,
+            visibleTextSample = visibleTexts,
+            isWechatPackage = packageName == WECHAT_PACKAGE_NAME,
+            looksLikeChatPage = inspection.looksLikeChatPage,
+            chatDetectionReason = inspection.reason,
+            conversationTitle = inspection.conversationTitle,
+            inputNodeFound = inspection.inputNodeFound,
+            inputNodeHint = inspection.inputNodeHint,
+            extractedMessages = inspection.extractedMessages,
+            lastAutofillStatus = AccessibilityDebugStore.state.value.lastAutofillStatus,
+            lastAutofillCategory = AccessibilityDebugStore.state.value.lastAutofillCategory,
+            lastAutofillSteps = AccessibilityDebugStore.state.value.lastAutofillSteps,
+            lastAutofillPreview = AccessibilityDebugStore.state.value.lastAutofillPreview,
+            updatedAtMillis = System.currentTimeMillis()
+        )
+
+        AccessibilityDebugStore.setState(state)
+        return WindowInspectionSnapshot(
+            success = true,
+            state = state,
+            message = "已刷新当前窗口"
+        )
+    }
+
     fun performAutofill(text: String): AutofillAttemptResult {
         val trimmed = text.trim()
         val steps = mutableListOf<String>()

@@ -94,6 +94,10 @@ object AccessibilityDebugStore {
             updatedAtMillis = System.currentTimeMillis()
         )
     }
+
+    fun setState(state: AccessibilityDebugState) {
+        _state.value = state
+    }
 }
 
 const val WECHAT_PACKAGE_NAME = "com.tencent.mm"

@@ -39,6 +39,12 @@ data class InputDraftReadResult(
     val steps: List<String> = emptyList()
 )
 
+data class WindowInspectionSnapshot(
+    val success: Boolean,
+    val state: AccessibilityDebugState = AccessibilityDebugState(),
+    val message: String = ""
+)
+
 object AccessibilityActionBridge {
     private var serviceRef: WeakReference<ReplyAccessibilityService>? = null
 
@@ -80,5 +86,17 @@ object AccessibilityActionBridge {
         }
 
         return service.readInputDraft()
+    }
+
+    fun tryInspectCurrentWindow(): WindowInspectionSnapshot {
+        val service = serviceRef?.get()
+        if (service == null) {
+            return WindowInspectionSnapshot(
+                success = false,
+                message = "无障碍服务未连接，无法刷新当前窗口"
+            )
+        }
+
+        return service.inspectCurrentWindow()
     }
 }

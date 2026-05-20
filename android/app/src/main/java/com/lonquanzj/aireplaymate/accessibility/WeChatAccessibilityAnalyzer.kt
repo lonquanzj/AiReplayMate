@@ -55,7 +55,7 @@ object WeChatAccessibilityAnalyzer {
         val inputNode = pickChatInputNode(editableNodes)
         val title = detectConversationTitle(collectedTexts)
         val messages = extractMessages(collectedTexts, title, rootBounds, inputNode)
-        val looksLikeChatPage = inputNode != null && (hasChatControl || messages.size >= 2)
+        val looksLikeChatPage = hasChatControl || messages.size >= 2 || inputNode != null
 
         val reason = buildString {
             append(if (inputNode != null) "已找到输入框" else "未找到输入框")

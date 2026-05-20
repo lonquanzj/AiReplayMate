@@ -109,7 +109,8 @@ class OverlayButtonService : Service() {
 
         val button = FrameLayout(this).apply {
             background = floatingButtonBackground(isLoading = false)
-            elevation = 18f
+            alpha = 0.94f
+            elevation = 12f
             setOnClickListener {
                 triggerCandidateGeneration(ReplyStyleSettingsStore.load(this@OverlayButtonService).asDefaultReply())
             }
@@ -117,8 +118,8 @@ class OverlayButtonService : Service() {
         button.addView(createFloatingButtonIcon())
 
         val params = WindowManager.LayoutParams(
-            dp(72),
-            dp(72),
+            dp(44),
+            dp(44),
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -210,7 +211,11 @@ class OverlayButtonService : Service() {
             isGeneratingCandidates = true
             updateFloatingButtonLoading(true)
             try {
-                showCandidatePanel(AccessibilityDebugStore.state.value, styleProfile, draftText)
+                val debugState = AccessibilityActionBridge.tryInspectCurrentWindow()
+                    .takeIf { it.success }
+                    ?.state
+                    ?: AccessibilityDebugStore.state.value
+                showCandidatePanel(debugState, styleProfile, draftText)
             } finally {
                 isGeneratingCandidates = false
                 updateFloatingButtonLoading(false)
@@ -281,9 +286,9 @@ class OverlayButtonService : Service() {
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             background = overlayPanelBackground()
-            elevation = 22f
+            elevation = 14f
         }
 
         panel.addView(
@@ -291,7 +296,7 @@ class OverlayButtonService : Service() {
                 text = "候选回复 · ${styleProfile.shortLabel}"
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
+                setTextColor(0xFF3F2B78.toInt())
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -303,7 +308,7 @@ class OverlayButtonService : Service() {
             TextView(this).apply {
                 text = "来源：${sessionResult.candidateSource}"
                 textSize = 12f
-                setTextColor(0xCFEAE3FF.toInt())
+                setTextColor(0xFF7A659C.toInt())
                 setPadding(0, dp(4), 0, 0)
             },
             LinearLayout.LayoutParams(
@@ -321,7 +326,7 @@ class OverlayButtonService : Service() {
                 text = "关闭"
                 gravity = Gravity.CENTER
                 textSize = 14f
-                setTextColor(0xFFD9CBFF.toInt())
+                setTextColor(0xFF7A659C.toInt())
                 setPadding(0, dp(10), 0, 0)
                 setOnClickListener {
                     OverlayDiagnosticsStore.onDone("用户关闭候选面板")
@@ -335,7 +340,7 @@ class OverlayButtonService : Service() {
         )
 
         val params = WindowManager.LayoutParams(
-            dp(330),
+            dp(304),
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -361,9 +366,9 @@ class OverlayButtonService : Service() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             background = overlayPanelBackground()
-            elevation = 22f
+            elevation = 14f
         }
 
         content.addView(menuTitle("选择 AI 回复风格"))
@@ -401,7 +406,7 @@ class OverlayButtonService : Service() {
                 text = "关闭"
                 gravity = Gravity.CENTER
                 textSize = 14f
-                setTextColor(0xFFD9CBFF.toInt())
+                setTextColor(0xFF7A659C.toInt())
                 setPadding(0, dp(12), 0, 0)
                 setOnClickListener { removeCandidatePanel() }
             },
@@ -415,8 +420,8 @@ class OverlayButtonService : Service() {
             addView(content)
         }
         val params = WindowManager.LayoutParams(
-            dp(330),
-            dp(540),
+            dp(304),
+            dp(500),
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -435,7 +440,7 @@ class OverlayButtonService : Service() {
             this.text = text
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
+            setTextColor(0xFF3F2B78.toInt())
         }
     }
 
@@ -443,7 +448,7 @@ class OverlayButtonService : Service() {
         return TextView(this).apply {
             this.text = text
             textSize = 12f
-            setTextColor(0xCFEAE3FF.toInt())
+            setTextColor(0xFF7A659C.toInt())
             setPadding(0, dp(6), 0, dp(4))
         }
     }
@@ -453,7 +458,7 @@ class OverlayButtonService : Service() {
             this.text = text
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFDCA8.toInt())
+            setTextColor(0xFF9B6A1D.toInt())
             setPadding(0, dp(12), 0, dp(2))
         }
     }
@@ -467,7 +472,7 @@ class OverlayButtonService : Service() {
         return TextView(this).apply {
             text = label
             textSize = 14f
-            setTextColor(Color.WHITE)
+            setTextColor(0xFF3F2B78.toInt())
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = softPurpleCardBackground()
             setOnClickListener {
@@ -501,7 +506,7 @@ class OverlayButtonService : Service() {
         return TextView(this).apply {
             text = candidate.text
             textSize = 15f
-            setTextColor(Color.WHITE)
+            setTextColor(0xFF3F2B78.toInt())
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = softPurpleCardBackground()
             setOnClickListener {
@@ -543,16 +548,16 @@ class OverlayButtonService : Service() {
         removeCandidatePanel()
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             background = overlayPanelBackground()
-            elevation = 22f
+            elevation = 14f
         }
         panel.addView(
             TextView(this).apply {
                 text = "AI 正在工作"
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
+                setTextColor(0xFF3F2B78.toInt())
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -572,7 +577,7 @@ class OverlayButtonService : Service() {
         val statusView = TextView(this).apply {
             text = status
             textSize = 13f
-            setTextColor(0xCFEAE3FF.toInt())
+            setTextColor(0xFF7A659C.toInt())
             setPadding(0, dp(10), 0, 0)
         }
         panel.addView(
@@ -584,7 +589,7 @@ class OverlayButtonService : Service() {
         )
 
         val params = WindowManager.LayoutParams(
-            dp(270),
+            dp(248),
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -609,7 +614,7 @@ class OverlayButtonService : Service() {
             startFloatingButtonAnimation(button)
         } else {
             stopFloatingButtonAnimation()
-            button.alpha = 1f
+            button.alpha = 0.94f
             button.scaleX = 1f
             button.scaleY = 1f
             button.translationZ = 0f
@@ -648,13 +653,13 @@ class OverlayButtonService : Service() {
 
     private fun floatingButtonBackground(isLoading: Boolean): GradientDrawable {
         val colors = if (isLoading) {
-            intArrayOf(0xFFB988FF.toInt(), 0xFF6C3BFF.toInt())
+            intArrayOf(0xE8C59BFF.toInt(), 0xE87749F2.toInt())
         } else {
-            intArrayOf(0xFF9E73FF.toInt(), 0xFF5A2FE0.toInt())
+            intArrayOf(0xE8AF89FF.toInt(), 0xE8653BE6.toInt())
         }
         return GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
             shape = GradientDrawable.OVAL
-            setStroke(dp(2), 0x66FFFFFF)
+            setStroke(dp(1), 0x4DFFFFFF)
         }
     }
 
@@ -672,8 +677,8 @@ class OverlayButtonService : Service() {
         }
         icon.addView(
             bubble,
-            FrameLayout.LayoutParams(dp(34), dp(26), Gravity.CENTER).apply {
-                topMargin = dp(-4)
+            FrameLayout.LayoutParams(dp(22), dp(16), Gravity.CENTER).apply {
+                topMargin = dp(-2)
             }
         )
 
@@ -683,19 +688,19 @@ class OverlayButtonService : Service() {
         }
         icon.addView(
             tail,
-            FrameLayout.LayoutParams(dp(10), dp(10), Gravity.CENTER).apply {
-                topMargin = dp(18)
-                marginStart = dp(2)
+            FrameLayout.LayoutParams(dp(6), dp(6), Gravity.CENTER).apply {
+                topMargin = dp(11)
+                marginStart = dp(1)
             }
         )
 
         repeat(3) { index ->
             bubble.addView(
                 View(this).apply {
-                    background = roundedBackground(0xFF7C52FF.toInt(), dp(3).toFloat())
+                    background = roundedBackground(0xFF7C52FF.toInt(), dp(2).toFloat())
                 },
-                FrameLayout.LayoutParams(dp(6), dp(6), Gravity.CENTER).apply {
-                    val spacing = dp(9)
+                FrameLayout.LayoutParams(dp(3), dp(3), Gravity.CENTER).apply {
+                    val spacing = dp(5)
                     when (index) {
                         0 -> marginEnd = spacing * 2
                         2 -> marginStart = spacing * 2
@@ -709,20 +714,20 @@ class OverlayButtonService : Service() {
             View(this).apply {
                 background = roundedBackground(0xD9FFFFFF.toInt(), dp(1).toFloat())
             },
-            FrameLayout.LayoutParams(dp(10), dp(2), Gravity.CENTER)
+            FrameLayout.LayoutParams(dp(8), dp(2), Gravity.CENTER)
         )
         sparkle.addView(
             View(this).apply {
                 background = roundedBackground(0xD9FFFFFF.toInt(), dp(1).toFloat())
                 rotation = 90f
             },
-            FrameLayout.LayoutParams(dp(10), dp(2), Gravity.CENTER)
+            FrameLayout.LayoutParams(dp(8), dp(2), Gravity.CENTER)
         )
         icon.addView(
             sparkle,
-            FrameLayout.LayoutParams(dp(10), dp(10), Gravity.TOP or Gravity.END).apply {
-                topMargin = dp(17)
-                marginEnd = dp(16)
+            FrameLayout.LayoutParams(dp(7), dp(7), Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(10)
+                marginEnd = dp(9)
             }
         )
 
@@ -732,22 +737,22 @@ class OverlayButtonService : Service() {
     private fun overlayPanelBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xF81A133B.toInt(), 0xF328195B.toInt())
+            intArrayOf(0xF2F2ECFF.toInt(), 0xEEE5D9FF.toInt())
         ).apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(22).toFloat()
-            setStroke(dp(1), 0x40FFFFFF)
+            setStroke(dp(1), 0x33A886FF)
         }
     }
 
     private fun softPurpleCardBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFF6D42F4.toInt(), 0xFF4B2AC3.toInt())
+            intArrayOf(0xFFF3EEFF.toInt(), 0xFFE9E0FF.toInt())
         ).apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(16).toFloat()
-            setStroke(dp(1), 0x2EFFFFFF)
+            setStroke(dp(1), 0x26A07CFF)
         }
     }
 
@@ -779,19 +784,19 @@ class OverlayButtonService : Service() {
     private fun startFloatingButtonAnimation(button: View) {
         if (floatingButtonAnimator != null) return
         val scaleX = ObjectAnimator.ofFloat(button, View.SCALE_X, 1f, 1.08f, 1f).apply {
-            duration = 1150L
+            duration = 1250L
             repeatCount = ObjectAnimator.INFINITE
         }
         val scaleY = ObjectAnimator.ofFloat(button, View.SCALE_Y, 1f, 1.08f, 1f).apply {
-            duration = 1150L
+            duration = 1250L
             repeatCount = ObjectAnimator.INFINITE
         }
-        val alpha = ObjectAnimator.ofFloat(button, View.ALPHA, 1f, 0.9f, 1f).apply {
-            duration = 1150L
+        val alpha = ObjectAnimator.ofFloat(button, View.ALPHA, 0.94f, 0.84f, 0.94f).apply {
+            duration = 1250L
             repeatCount = ObjectAnimator.INFINITE
         }
-        val lift = ObjectAnimator.ofFloat(button, View.TRANSLATION_Z, 0f, dp(8).toFloat(), 0f).apply {
-            duration = 1150L
+        val lift = ObjectAnimator.ofFloat(button, View.TRANSLATION_Z, 0f, dp(4).toFloat(), 0f).apply {
+            duration = 1250L
             repeatCount = ObjectAnimator.INFINITE
         }
         floatingButtonAnimator = AnimatorSet().apply {
