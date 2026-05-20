@@ -1,14 +1,18 @@
 package com.lonquanzj.aireplaymate
 
+import android.app.Activity
 import android.content.Intent
 import android.content.Context
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.provider.Settings.Secure
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +84,14 @@ import com.lonquanzj.aireplaymate.demo.demoScenarios
 import com.lonquanzj.aireplaymate.llm.LlmDebugState
 import com.lonquanzj.aireplaymate.llm.LlmDebugStore
 import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
+import com.lonquanzj.aireplaymate.ocr.AndroidScreenCaptureProvider
+import com.lonquanzj.aireplaymate.ocr.OcrDebugState
+import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
+import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionState
+import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStore
+import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureState
+import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureStore
+import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
@@ -151,10 +163,36 @@ private fun MainScreen(
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
     var testingLlm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
     val llmDebugState by LlmDebugStore.state.collectAsState()
+    val ocrDebugState by OcrDebugStore.state.collectAsState()
+    val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
+    val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
+    var testingScreenCapture by remember { mutableStateOf(false) }
+    var testingOcrRecognition by remember { mutableStateOf(false) }
+    val mediaProjectionManager = remember(context) {
+        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    }
+    val screenCapturePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        OcrCapturePermissionStore.onPermissionResult(
+            resultCode = result.resultCode,
+            data = result.data
+        )
+        Toast.makeText(
+            context,
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                "屏幕截图授权已就绪"
+            } else {
+                "屏幕截图授权未完成"
+            },
+            Toast.LENGTH_SHORT
+        ).show()
+    }
 
     val selectedScenario = remember(selectedScenarioId, scenarios) {
         scenarios.first { it.id == selectedScenarioId }
@@ -360,7 +398,44 @@ private fun MainScreen(
 
                 LlmDiagnosticsSection(debugState = llmDebugState)
 
-                RealAccessibilitySection(debugState = debugState)
+                RealAccessibilitySection(
+                    debugState = debugState,
+                    ocrDebugState = ocrDebugState
+                )
+
+                OcrFallbackSection(
+                    debugState = ocrDebugState,
+                    capturePermissionState = ocrCapturePermissionState,
+                    screenCaptureState = ocrScreenCaptureState,
+                    isTestingScreenCapture = testingScreenCapture,
+                    isTestingOcrRecognition = testingOcrRecognition,
+                    onRequestCapturePermission = {
+                        screenCapturePermissionLauncher.launch(
+                            mediaProjectionManager.createScreenCaptureIntent()
+                        )
+                    },
+                    onTestScreenCapture = {
+                        scope.launch {
+                            testingScreenCapture = true
+                            val result = AndroidScreenCaptureProvider(context.applicationContext)
+                                .captureOnce(ocrCapturePermissionState)
+                            testingScreenCapture = false
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onTestOcrRecognition = {
+                        scope.launch {
+                            testingOcrRecognition = true
+                            val result = MlKitChineseOcrEngine(context.applicationContext)
+                                .recognizeChatMessages(
+                                    targetApp = "wechat",
+                                    reason = "首页手动测试 OCR 识别"
+                                )
+                            testingOcrRecognition = false
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
 
                 ScenarioSection(
                     scenarios = scenarios,
@@ -786,7 +861,10 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
 }
 
 @Composable
-private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
+private fun RealAccessibilitySection(
+    debugState: AccessibilityDebugState,
+    ocrDebugState: OcrDebugState
+) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -869,7 +947,12 @@ private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
                 OutlinedButton(
                     onClick = {
                         clipboardManager.setText(
-                            AnnotatedString(buildAccessibilityDebugSnapshot(debugState))
+                            AnnotatedString(
+                                buildAccessibilityDebugSnapshot(
+                                    debugState = debugState,
+                                    ocrDebugState = ocrDebugState
+                                )
+                            )
                         )
                         Toast.makeText(context, "已复制调试样本", Toast.LENGTH_SHORT).show()
                     },
@@ -934,6 +1017,195 @@ private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OcrFallbackSection(
+    debugState: OcrDebugState,
+    capturePermissionState: OcrCapturePermissionState,
+    screenCaptureState: OcrScreenCaptureState,
+    isTestingScreenCapture: Boolean,
+    isTestingOcrRecognition: Boolean,
+    onRequestCapturePermission: () -> Unit,
+    onTestScreenCapture: () -> Unit,
+    onTestOcrRecognition: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "OCR 兜底",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = if (capturePermissionState.isReady) {
+                        "屏幕截图授权已准备好；下一步接入 OCR 引擎后，就能从截图中提取聊天文本。"
+                    } else {
+                        "当前已接入 OCR 兜底入口和诊断；先授权屏幕截图，后续再接真实识别引擎。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                StatusRow(
+                    label = "截图授权",
+                    value = capturePermissionState.status.label
+                )
+                StatusRow(
+                    label = "授权时间",
+                    value = formatTimestamp(capturePermissionState.updatedAtMillis)
+                )
+                StatusRow(
+                    label = "OCR 引擎",
+                    value = if (debugState.engineConfigured) "已配置" else "未配置"
+                )
+                StatusRow(
+                    label = "截图数据流",
+                    value = screenCaptureState.status.label
+                )
+                StatusRow(
+                    label = "截图尺寸",
+                    value = screenCaptureState.sizeLabel
+                )
+                StatusRow(
+                    label = "截图状态",
+                    value = screenCaptureState.message
+                )
+                StatusRow(
+                    label = "最近分类",
+                    value = debugState.lastCategory.label
+                )
+                StatusRow(
+                    label = "最近状态",
+                    value = debugState.lastStatus
+                )
+                StatusRow(
+                    label = "触发原因",
+                    value = debugState.lastReason.ifBlank { "暂无" }
+                )
+                StatusRow(
+                    label = "目标应用",
+                    value = debugState.targetApp.ifBlank { "暂无" }
+                )
+                StatusRow(
+                    label = "识别消息数",
+                    value = debugState.extractedMessages.size.toString()
+                )
+                StatusRow(
+                    label = "更新时间",
+                    value = formatTimestamp(debugState.updatedAtMillis)
+                )
+
+                Button(
+                    onClick = onRequestCapturePermission,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (capturePermissionState.isReady) "重新授权屏幕截图" else "授权屏幕截图")
+                }
+
+                OutlinedButton(
+                    onClick = onTestScreenCapture,
+                    enabled = capturePermissionState.isReady &&
+                        !isTestingScreenCapture &&
+                        !isTestingOcrRecognition,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isTestingScreenCapture) "取图中..." else "测试截图数据流")
+                }
+
+                OutlinedButton(
+                    onClick = onTestOcrRecognition,
+                    enabled = capturePermissionState.isReady &&
+                        !isTestingScreenCapture &&
+                        !isTestingOcrRecognition,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isTestingOcrRecognition) "识别中..." else "测试 OCR 识别")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(
+                            AnnotatedString(
+                                buildOcrDebugSnapshot(
+                                    debugState = debugState,
+                                    capturePermissionState = capturePermissionState,
+                                    screenCaptureState = screenCaptureState
+                                )
+                            )
+                        )
+                        Toast.makeText(context, "已复制 OCR 诊断", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = debugState.updatedAtMillis > 0L ||
+                        capturePermissionState.updatedAtMillis > 0L ||
+                        screenCaptureState.updatedAtMillis > 0L,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("复制 OCR 诊断")
+                }
+
+                if (debugState.steps.isNotEmpty()) {
+                    Text(
+                        text = "OCR 步骤",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    debugState.steps.forEach { step ->
+                        Text(
+                            text = "- $step",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (screenCaptureState.steps.isNotEmpty()) {
+                    Text(
+                        text = "截图步骤",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    screenCaptureState.steps.forEach { step ->
+                        Text(
+                            text = "- $step",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (debugState.extractedMessagePreviews.isNotEmpty()) {
+                    Text(
+                        text = "OCR 消息",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    debugState.extractedMessagePreviews.takeLast(8).forEach { message ->
+                        Text(
+                            text = "- $message",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }
@@ -1064,6 +1336,7 @@ private fun SessionStageSection(
     val steps = listOf(
         SessionState.VALIDATING_TARGET,
         SessionState.COLLECTING_ACCESSIBILITY,
+        SessionState.COLLECTING_OCR,
         SessionState.BUILDING_CONTEXT,
         SessionState.REQUESTING_LLM,
         SessionState.CANDIDATE_READY,
@@ -1348,7 +1621,10 @@ private suspend fun testLlmConnection(settings: AppSettings) {
     )
 }
 
-private fun buildAccessibilityDebugSnapshot(debugState: AccessibilityDebugState): String {
+private fun buildAccessibilityDebugSnapshot(
+    debugState: AccessibilityDebugState,
+    ocrDebugState: OcrDebugState
+): String {
     return buildString {
         appendLine("AiReplayMate Accessibility Debug Snapshot")
         appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
@@ -1366,6 +1642,9 @@ private fun buildAccessibilityDebugSnapshot(debugState: AccessibilityDebugState)
         appendLine("lastAutofillStatus=${debugState.lastAutofillStatus}")
         appendLine("lastAutofillCategory=${debugState.lastAutofillCategory.label}")
         appendLine("lastAutofillPreview=${debugState.lastAutofillPreview ?: "N/A"}")
+        appendLine("ocrCategory=${ocrDebugState.lastCategory.label}")
+        appendLine("ocrStatus=${ocrDebugState.lastStatus}")
+        appendLine("ocrReason=${ocrDebugState.lastReason.ifBlank { "N/A" }}")
         appendLine()
         appendLine("Autofill Steps:")
         if (debugState.lastAutofillSteps.isEmpty()) {
@@ -1388,6 +1667,52 @@ private fun buildAccessibilityDebugSnapshot(debugState: AccessibilityDebugState)
             debugState.visibleTextSample.forEachIndexed { index, sample ->
                 appendLine("${index + 1}. $sample")
             }
+        }
+    }
+}
+
+private fun buildOcrDebugSnapshot(
+    debugState: OcrDebugState,
+    capturePermissionState: OcrCapturePermissionState,
+    screenCaptureState: OcrScreenCaptureState
+): String {
+    return buildString {
+        appendLine("AiReplayMate OCR Debug Snapshot")
+        appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
+        appendLine("capturePermission=${capturePermissionState.status.label}")
+        appendLine("captureReady=${capturePermissionState.isReady}")
+        appendLine("captureUpdatedAt=${formatTimestamp(capturePermissionState.updatedAtMillis)}")
+        appendLine("screenCaptureStatus=${screenCaptureState.status.label}")
+        appendLine("screenCaptureMessage=${screenCaptureState.message}")
+        appendLine("screenCaptureSize=${screenCaptureState.sizeLabel}")
+        appendLine("screenCaptureRowStride=${screenCaptureState.rowStride ?: "N/A"}")
+        appendLine("screenCapturePixelStride=${screenCaptureState.pixelStride ?: "N/A"}")
+        appendLine("screenCaptureUpdatedAt=${formatTimestamp(screenCaptureState.updatedAtMillis)}")
+        appendLine("engineConfigured=${debugState.engineConfigured}")
+        appendLine("category=${debugState.lastCategory.label}")
+        appendLine("status=${debugState.lastStatus}")
+        appendLine("reason=${debugState.lastReason.ifBlank { "N/A" }}")
+        appendLine("targetApp=${debugState.targetApp.ifBlank { "N/A" }}")
+        appendLine()
+        appendLine("OCR Steps:")
+        if (debugState.steps.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.steps.forEach(::appendLine)
+        }
+        appendLine()
+        appendLine("Screen Capture Steps:")
+        if (screenCaptureState.steps.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            screenCaptureState.steps.forEach(::appendLine)
+        }
+        appendLine()
+        appendLine("OCR Messages:")
+        if (debugState.extractedMessagePreviews.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.extractedMessagePreviews.forEach(::appendLine)
         }
     }
 }

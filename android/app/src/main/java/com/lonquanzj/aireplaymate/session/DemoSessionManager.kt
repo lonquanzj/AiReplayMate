@@ -10,6 +10,7 @@ import com.lonquanzj.aireplaymate.demo.DemoAuthor
 import com.lonquanzj.aireplaymate.demo.DemoCandidate
 import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.demo.DemoScenario
+import com.lonquanzj.aireplaymate.ocr.PlaceholderOcrEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,11 +25,12 @@ enum class SessionState(
     IDLE("待机", "等待你触发一次完整演示", -1),
     VALIDATING_TARGET("校验目标页面", "确认当前处于微信单聊场景", 0),
     COLLECTING_ACCESSIBILITY("提取聊天上下文", "优先使用 Accessibility 抽取最近可见消息", 1),
-    BUILDING_CONTEXT("整理上下文", "过滤系统消息、去重并截取最近对话", 2),
-    REQUESTING_LLM("生成候选回复", "根据上下文生成 3 条可直接发送的回复", 3),
-    CANDIDATE_READY("候选已就绪", "底部面板展示候选，等待用户选择", 4),
-    AUTOFILLING("自动填入", "把选中的回复写入输入框", 5),
-    DONE("演示完成", "主链路已经跑通，用户保留最终发送权", 6),
+    COLLECTING_OCR("OCR 兜底", "当 Accessibility 上下文不足时尝试 OCR 补齐", 2),
+    BUILDING_CONTEXT("整理上下文", "过滤系统消息、去重并截取最近对话", 3),
+    REQUESTING_LLM("生成候选回复", "根据上下文生成 3 条可直接发送的回复", 4),
+    CANDIDATE_READY("候选已就绪", "底部面板展示候选，等待用户选择", 5),
+    AUTOFILLING("自动填入", "把选中的回复写入输入框", 6),
+    DONE("演示完成", "主链路已经跑通，用户保留最终发送权", 7),
     FAILED("执行失败", "当前条件不满足主链路要求，请调整后重试", -1),
     CANCELLED("已取消", "候选面板已关闭，本次会话结束", -1)
 }
@@ -126,11 +128,34 @@ class DemoSessionManager {
             )
         }
 
-        val context = DefaultContextBuilder.build(
+        var context = DefaultContextBuilder.build(
             accessibilityMessages = rawMessages,
             targetApp = WECHAT_TARGET_APP,
             conversationType = ConversationType.SINGLE_CHAT
         )
+
+        if (liveMode && !context.enoughForReply) {
+            _state.update {
+                it.copy(
+                    currentState = SessionState.COLLECTING_OCR,
+                    progressState = SessionState.COLLECTING_OCR
+                )
+            }
+            appendLog("Accessibility 上下文不足，开始尝试 OCR 兜底")
+            val ocrResult = PlaceholderOcrEngine.recognizeChatMessages(
+                targetApp = WECHAT_TARGET_APP,
+                reason = "Demo 主链路整理上下文前补齐消息"
+            )
+            appendLog("OCR 兜底：${ocrResult.message}")
+            delay(350)
+
+            context = DefaultContextBuilder.build(
+                accessibilityMessages = rawMessages,
+                ocrMessages = ocrResult.messages,
+                targetApp = WECHAT_TARGET_APP,
+                conversationType = ConversationType.SINGLE_CHAT
+            )
+        }
 
         if (!context.enoughForReply) {
             fail("上下文里没有足够的对方消息，暂不生成候选")

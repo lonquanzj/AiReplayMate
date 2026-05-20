@@ -25,6 +25,7 @@ import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
+import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
@@ -166,14 +167,30 @@ class OverlayButtonService : Service() {
             return
         }
 
-        val context = DefaultContextBuilder.build(
+        var context = DefaultContextBuilder.build(
             accessibilityMessages = debugState.extractedMessages,
             targetApp = WECHAT_TARGET_APP,
             conversationType = ConversationType.SINGLE_CHAT
         )
         if (!context.enoughForReply) {
-            Toast.makeText(this, "上下文不足，先在微信单聊页停留一秒再试", Toast.LENGTH_SHORT).show()
-            return
+            val ocrResult = MlKitChineseOcrEngine(applicationContext).recognizeChatMessages(
+                targetApp = WECHAT_TARGET_APP,
+                reason = "悬浮按钮触发时 Accessibility 上下文不足"
+            )
+            context = DefaultContextBuilder.build(
+                accessibilityMessages = debugState.extractedMessages,
+                ocrMessages = ocrResult.messages,
+                targetApp = WECHAT_TARGET_APP,
+                conversationType = ConversationType.SINGLE_CHAT
+            )
+            if (!context.enoughForReply) {
+                Toast.makeText(
+                    this,
+                    "上下文不足，且 ${ocrResult.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return
+            }
         }
 
         val settings = AppSettingsStore.load(this)

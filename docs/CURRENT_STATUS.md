@@ -18,7 +18,7 @@
 - 已有最小 Overlay 悬浮按钮与系统级候选面板，可在微信上方选择候选并尝试填入
 - 已有 OpenAI 兼容 `LlmGateway`、响应解析器和首页最小 LLM 设置入口
 - 悬浮面板已支持优先请求真实 LLM，失败或未配置 API Key 时自动回退到本地候选
-- 尚未打通 OCR 闭环
+- 已有 OCR 兜底入口、状态模型、诊断 UI、MediaProjection 截图授权入口、测试截图数据流和 ML Kit 中文 OCR 识别引擎
 
 对应代码入口：
 
@@ -54,6 +54,17 @@
 - 微信悬浮候选面板已支持真实 LLM 生成，异常时保留本地兜底候选
 - 已有最小 Autofill 尝试链路：定位输入框、执行 `ACTION_SET_TEXT`、回读确认，并在必要时使用剪贴板粘贴兜底
 - Autofill 调试已支持失败分类和步骤 trace，可区分无障碍未连接、内容为空、窗口为空、输入框未找到、SET_TEXT 失败、粘贴失败和回读不一致
+- 已新增最小 `OcrEngine` / `OcrAttemptResult` / `OcrDebugStore`，作为 Accessibility 上下文不足时的 OCR 兜底接入点
+- 首页已新增 `OCR 兜底` 诊断卡片，可展示截图授权、OCR 引擎状态、最近分类、触发原因、步骤 trace 和复制 OCR 诊断
+- 首页已接入系统屏幕截图授权入口，授权结果通过 `OcrCapturePermissionStore` 保存在内存态，供后续 MediaProjection 截图实现使用
+- 首页已新增 `测试截图数据流`，会用 MediaProjection / VirtualDisplay / ImageReader 抓取一帧当前屏幕图像，并只记录尺寸、stride 和步骤，不保存图片
+- 截图授权 token 使用后会标记为 `已使用`，避免重复使用旧 token 导致模糊失败
+- 已接入 `com.google.mlkit:text-recognition-chinese`，可把截图帧转换为 ML Kit `InputImage` 并识别中文文本
+- 首页已新增 `测试 OCR 识别`，识别结果会转换为内存态 `ChatMessage` 并进入 OCR 诊断，不保存截图
+- 微信悬浮候选面板在 Accessibility 上下文不足时，已从占位 OCR 切换为 ML Kit 中文 OCR 兜底
+- 已新增 `OcrTextPostProcessor`，会过滤顶部/底部 UI、常见微信控件、时间日期、数字角标、重复文本，并按同侧相邻文本行聚合为候选聊天气泡
+- OCR 诊断步骤已记录 ML Kit 文本块数、原始行数、保留行数、过滤行数和聚合消息数，方便真机调参
+- Demo 状态机已新增 `OCR 兜底` 阶段；微信悬浮按钮在上下文不足时会先尝试 OCR 兜底，再决定是否提示失败
 
 ## 3. 未完成
 
@@ -62,8 +73,8 @@
 - 多模块拆分
 - Hilt / DI
 - Navigation 完整路由
-- MediaProjection 截图
-- ML Kit OCR
+- OCR 结果的聊天气泡分组、角色推断和坐标回填仍需真机样本校准
+- OCR 真机质量校准，包括更多微信控件、引用消息、表情/图片提示、群聊昵称和非聊天文本
 - Accessibility 消息提取规则仍需基于真机样本继续校准，包括群聊/引用/图片/表情等复杂消息形态
 - LLM 诊断日志持久化、导出与更细粒度错误建议
 - Autofill 多机型兼容性验证与机型差异样本积累
@@ -90,8 +101,8 @@
 最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
 
 1. 把当前会话骨架从 Demo 推进到真实可复用链路
-2. 补齐 Autofill 多机型兼容验证与机型差异样本积累
-3. 基于真机样本继续校准 Accessibility 规则和 Autofill 兼容性
+2. 基于真机 OCR 诊断样本校准结果清洗、聊天气泡分组和角色推断
+3. 把 OCR 兜底与 Accessibility 上下文合并策略做成可观测规则
 
 对应任务建议：
 
@@ -101,15 +112,15 @@
 - `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
 - Accessibility 消息结构化提取真机校准
 - LLM 诊断日志持久化与导出
-- `AutofillEngine` 多机型兼容验证与机型差异样本积累
+- OCR 真机样本回放、清洗规则调参、气泡分组和角色推断规则
 
 ### Next
 
 在主链路骨架稳定后，再接提取和生成能力：
 
-1. Autofill 多机型兼容验证与机型差异样本积累
-2. Accessibility 真机样本校准
-3. OCR 兜底
+1. 收集真机 OCR 诊断样本，校准过滤规则和底部输入区比例
+2. 增强 OCR 气泡分组，覆盖多行长消息、引用消息、图片/表情提示和群聊昵称
+3. OCR 与 Accessibility 上下文合并时的来源、置信度和降级提示
 4. 设置页从最小表单升级为正式页面
 
 这样可以先打通最短闭环：
@@ -124,7 +135,7 @@
 
 这些能力适合在基础链路稳定后再补：
 
-- OCR 兜底
+- OCR 真机识别质量优化
 - Room / DataStore
 - 日志诊断页面
 - 厂商兼容性适配
