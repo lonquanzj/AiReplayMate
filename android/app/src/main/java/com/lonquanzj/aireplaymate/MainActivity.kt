@@ -93,6 +93,8 @@ import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureState
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureStore
 import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
+import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
+import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsStore
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
@@ -170,6 +172,7 @@ private fun MainScreen(
     val ocrDebugState by OcrDebugStore.state.collectAsState()
     val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
     val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
+    val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
@@ -378,6 +381,8 @@ private fun MainScreen(
                     onStartOverlayService = onStartOverlayService,
                     onStopOverlayService = onStopOverlayService
                 )
+
+                OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
 
                 LlmSettingsSection(
                     settings = appSettings,
@@ -796,7 +801,96 @@ private fun llmSettingsHint(
 }
 
 @Composable
+private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "悬浮窗诊断",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "记录上一次点击微信 AI 气泡后的真实链路，方便定位候选面板不出现或填入失败的原因。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                StatusRow(label = "阶段", value = debugState.phase.label)
+                StatusRow(label = "状态", value = debugState.status)
+                StatusRow(
+                    label = "上下文",
+                    value = "A11y ${debugState.accessibilityMessageCount} / OCR ${debugState.ocrMessageCount} / 合并 ${debugState.mergedMessageCount}"
+                )
+                StatusRow(
+                    label = "候选数",
+                    value = debugState.candidateCount.toString()
+                )
+                StatusRow(
+                    label = "使用 OCR",
+                    value = if (debugState.usedOcr) "是" else "否"
+                )
+                StatusRow(
+                    label = "本地兜底",
+                    value = if (debugState.usedLocalFallback) "是" else "否"
+                )
+                StatusRow(
+                    label = "失败原因",
+                    value = debugState.lastFailure ?: "暂无"
+                )
+                StatusRow(
+                    label = "更新时间",
+                    value = formatTimestamp(debugState.updatedAtMillis)
+                )
+
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(
+                            AnnotatedString(buildOverlayDebugSnapshot(debugState))
+                        )
+                        Toast.makeText(context, "已复制悬浮窗诊断", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = debugState.updatedAtMillis > 0L,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("复制悬浮窗诊断")
+                }
+
+                if (debugState.steps.isNotEmpty()) {
+                    Text(
+                        text = "最近步骤",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    debugState.steps.takeLast(8).forEach { step ->
+                        Text(
+                            text = "- $step",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = "LLM 诊断",
@@ -840,6 +934,20 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                     label = "更新时间",
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
+
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(
+                            AnnotatedString(buildLlmDebugSnapshot(debugState))
+                        )
+                        Toast.makeText(context, "已复制 LLM 诊断", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = debugState.updatedAtMillis > 0L || debugState.history.isNotEmpty(),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("复制 LLM 诊断")
+                }
 
                 if (debugState.history.isNotEmpty()) {
                     Text(
@@ -1713,6 +1821,61 @@ private fun buildOcrDebugSnapshot(
             appendLine("N/A")
         } else {
             debugState.extractedMessagePreviews.forEach(::appendLine)
+        }
+    }
+}
+
+private fun buildLlmDebugSnapshot(debugState: LlmDebugState): String {
+    return buildString {
+        appendLine("AiReplayMate LLM Debug Snapshot")
+        appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
+        appendLine("phase=${debugState.phase.label}")
+        appendLine("category=${debugState.failureCategory.label}")
+        appendLine("baseUrl=${debugState.baseUrl.ifBlank { "N/A" }}")
+        appendLine("model=${debugState.model.ifBlank { "N/A" }}")
+        appendLine("httpStatus=${debugState.httpStatus ?: "N/A"}")
+        appendLine("candidateCount=${debugState.candidateCount}")
+        appendLine("errorSummary=${debugState.errorSummary ?: "N/A"}")
+        appendLine("responsePreview=${debugState.responsePreview ?: "N/A"}")
+        appendLine()
+        appendLine("LLM History:")
+        if (debugState.history.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.history.forEachIndexed { index, entry ->
+                appendLine(
+                    "${index + 1}. ${formatTimestamp(entry.timestampMillis)} " +
+                        "${entry.phase.label}/${entry.category.label} " +
+                        "http=${entry.httpStatus ?: "N/A"} " +
+                        "candidates=${entry.candidateCount} " +
+                        "model=${entry.model.ifBlank { "N/A" }} " +
+                        "baseUrl=${entry.baseUrl.ifBlank { "N/A" }} " +
+                        "summary=${entry.summary}"
+                )
+            }
+        }
+    }
+}
+
+private fun buildOverlayDebugSnapshot(debugState: OverlayDiagnosticsState): String {
+    return buildString {
+        appendLine("AiReplayMate Overlay Debug Snapshot")
+        appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
+        appendLine("phase=${debugState.phase.label}")
+        appendLine("status=${debugState.status}")
+        appendLine("accessibilityMessageCount=${debugState.accessibilityMessageCount}")
+        appendLine("ocrMessageCount=${debugState.ocrMessageCount}")
+        appendLine("mergedMessageCount=${debugState.mergedMessageCount}")
+        appendLine("candidateCount=${debugState.candidateCount}")
+        appendLine("usedOcr=${debugState.usedOcr}")
+        appendLine("usedLocalFallback=${debugState.usedLocalFallback}")
+        appendLine("lastFailure=${debugState.lastFailure ?: "N/A"}")
+        appendLine()
+        appendLine("Overlay Steps:")
+        if (debugState.steps.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.steps.forEach(::appendLine)
         }
     }
 }

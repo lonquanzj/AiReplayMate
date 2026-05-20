@@ -161,18 +161,34 @@ class OverlayButtonService : Service() {
     }
 
     private suspend fun showCandidatePanel(debugState: AccessibilityDebugState) {
+        OverlayDiagnosticsStore.begin()
         val blocker = validateTarget(debugState)
         if (blocker != null) {
+            OverlayDiagnosticsStore.onFailed(blocker)
             Toast.makeText(this, blocker, Toast.LENGTH_SHORT).show()
             return
         }
+        OverlayDiagnosticsStore.onPhase(
+            phase = OverlayRunPhase.BUILDING_CONTEXT,
+            status = "页面校验通过，开始整理上下文"
+        )
 
         var context = DefaultContextBuilder.build(
             accessibilityMessages = debugState.extractedMessages,
             targetApp = WECHAT_TARGET_APP,
             conversationType = ConversationType.SINGLE_CHAT
         )
+        OverlayDiagnosticsStore.onContext(
+            accessibilityMessageCount = debugState.extractedMessages.size,
+            ocrMessageCount = 0,
+            mergedMessageCount = context.messages.size,
+            usedOcr = false
+        )
         if (!context.enoughForReply) {
+            OverlayDiagnosticsStore.onPhase(
+                phase = OverlayRunPhase.OCR_FALLBACK,
+                status = "Accessibility 上下文不足，开始 OCR 兜底"
+            )
             val ocrResult = MlKitChineseOcrEngine(applicationContext).recognizeChatMessages(
                 targetApp = WECHAT_TARGET_APP,
                 reason = "悬浮按钮触发时 Accessibility 上下文不足"
@@ -183,7 +199,14 @@ class OverlayButtonService : Service() {
                 targetApp = WECHAT_TARGET_APP,
                 conversationType = ConversationType.SINGLE_CHAT
             )
+            OverlayDiagnosticsStore.onContext(
+                accessibilityMessageCount = debugState.extractedMessages.size,
+                ocrMessageCount = ocrResult.messages.size,
+                mergedMessageCount = context.messages.size,
+                usedOcr = true
+            )
             if (!context.enoughForReply) {
+                OverlayDiagnosticsStore.onFailed("上下文不足，且 ${ocrResult.message}")
                 Toast.makeText(
                     this,
                     "上下文不足，且 ${ocrResult.message}",
@@ -198,12 +221,22 @@ class OverlayButtonService : Service() {
             context = context,
             settings = settings
         )
+        OverlayDiagnosticsStore.onPhase(
+            phase = OverlayRunPhase.REQUESTING_LLM,
+            status = "正在生成候选回复"
+        )
         Toast.makeText(this, "正在生成候选回复", Toast.LENGTH_SHORT).show()
+        var usedLocalFallback = false
         val candidates = OpenAiCompatibleLlmGateway(settings)
             .generateReplies(llmRequest)
             .fold(
                 onSuccess = { it.toOverlayCandidates() },
                 onFailure = { error ->
+                    usedLocalFallback = true
+                    OverlayDiagnosticsStore.onPhase(
+                        phase = OverlayRunPhase.LOCAL_FALLBACK,
+                        status = "LLM 不可用，切换到本地兜底：${error.message ?: "未知错误"}"
+                    )
                     Toast.makeText(
                         this,
                         "LLM 不可用，已使用本地兜底：${error.message ?: "未知错误"}",
@@ -212,6 +245,10 @@ class OverlayButtonService : Service() {
                     generateLocalCandidates(context, llmRequest)
                 }
             )
+        OverlayDiagnosticsStore.onCandidates(
+            count = candidates.size,
+            usedLocalFallback = usedLocalFallback
+        )
         removeCandidatePanel()
 
         val panel = LinearLayout(this).apply {
@@ -244,8 +281,11 @@ class OverlayButtonService : Service() {
                 gravity = Gravity.CENTER
                 textSize = 14f
                 setTextColor(Color.rgb(91, 101, 98))
-                setPadding(0, dp(10), 0, 0)
-                setOnClickListener { removeCandidatePanel() }
+            setPadding(0, dp(10), 0, 0)
+                setOnClickListener {
+                    OverlayDiagnosticsStore.onDone("用户关闭候选面板")
+                    removeCandidatePanel()
+                }
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -278,8 +318,10 @@ class OverlayButtonService : Service() {
             background = roundedBackground(0xFFF8F2E8.toInt(), dp(14).toFloat())
             setOnClickListener {
                 val result = AccessibilityActionBridge.tryAutofill(candidate.text)
+                OverlayDiagnosticsStore.onAutofill(result.message)
                 Toast.makeText(this@OverlayButtonService, result.message, Toast.LENGTH_SHORT).show()
                 if (result.success) {
+                    OverlayDiagnosticsStore.onDone("候选已填入输入框，等待用户手动发送")
                     removeCandidatePanel()
                 }
             }
