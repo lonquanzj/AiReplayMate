@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Bundle
 import android.provider.Settings
 import android.provider.Settings.Secure
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -57,6 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -783,6 +787,9 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
 
 @Composable
 private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = "真实无障碍状态",
@@ -847,6 +854,10 @@ private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
                     value = debugState.lastAutofillStatus
                 )
                 StatusRow(
+                    label = "填入分类",
+                    value = debugState.lastAutofillCategory.label
+                )
+                StatusRow(
                     label = "填入文本预览",
                     value = debugState.lastAutofillPreview ?: "暂无"
                 )
@@ -855,16 +866,50 @@ private fun RealAccessibilitySection(debugState: AccessibilityDebugState) {
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                if (debugState.extractedMessagePreviews.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(
+                            AnnotatedString(buildAccessibilityDebugSnapshot(debugState))
+                        )
+                        Toast.makeText(context, "已复制调试样本", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = debugState.updatedAtMillis > 0L,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("复制调试样本")
+                }
+
+                if (debugState.lastAutofillSteps.isNotEmpty()) {
                     Text(
-                        text = "消息提取预览",
+                        text = "填入步骤",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    debugState.extractedMessagePreviews.takeLast(5).forEach { message ->
+                    debugState.lastAutofillSteps.forEach { step ->
+                        Text(
+                            text = "- $step",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (debugState.extractedMessageDebugPreviews.isNotEmpty()) {
+                    Text(
+                        text = "消息提取调试",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "格式：序号 角色 置信度 [left,top,right,bottom] 文本",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    debugState.extractedMessageDebugPreviews.takeLast(8).forEach { message ->
                         Text(
                             text = "- $message",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -1301,6 +1346,50 @@ private suspend fun testLlmConnection(settings: AppSettings) {
             candidateCount = 1
         )
     )
+}
+
+private fun buildAccessibilityDebugSnapshot(debugState: AccessibilityDebugState): String {
+    return buildString {
+        appendLine("AiReplayMate Accessibility Debug Snapshot")
+        appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
+        appendLine("serviceConnected=${debugState.serviceConnected}")
+        appendLine("lastEvent=${debugState.lastEventName}")
+        appendLine("package=${debugState.packageName.ifEmpty { "N/A" }}")
+        appendLine("class=${debugState.className.ifEmpty { "N/A" }}")
+        appendLine("editableNodeCount=${debugState.editableNodeCount}")
+        appendLine("isWechatPackage=${debugState.isWechatPackage}")
+        appendLine("looksLikeChatPage=${debugState.looksLikeChatPage}")
+        appendLine("conversationTitle=${debugState.conversationTitle ?: "N/A"}")
+        appendLine("inputNodeFound=${debugState.inputNodeFound}")
+        appendLine("inputNodeHint=${debugState.inputNodeHint ?: "N/A"}")
+        appendLine("chatDetectionReason=${debugState.chatDetectionReason.ifEmpty { "N/A" }}")
+        appendLine("lastAutofillStatus=${debugState.lastAutofillStatus}")
+        appendLine("lastAutofillCategory=${debugState.lastAutofillCategory.label}")
+        appendLine("lastAutofillPreview=${debugState.lastAutofillPreview ?: "N/A"}")
+        appendLine()
+        appendLine("Autofill Steps:")
+        if (debugState.lastAutofillSteps.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.lastAutofillSteps.forEach(::appendLine)
+        }
+        appendLine()
+        appendLine("Extracted Messages:")
+        if (debugState.extractedMessageDebugPreviews.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.extractedMessageDebugPreviews.forEach(::appendLine)
+        }
+        appendLine()
+        appendLine("Visible Text Sample:")
+        if (debugState.visibleTextSample.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.visibleTextSample.forEachIndexed { index, sample ->
+                appendLine("${index + 1}. $sample")
+            }
+        }
+    }
 }
 
 private fun formatTimestamp(timestamp: Long): String {

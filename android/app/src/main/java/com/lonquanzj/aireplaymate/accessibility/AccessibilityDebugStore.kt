@@ -19,12 +19,21 @@ data class AccessibilityDebugState(
     val inputNodeHint: String? = null,
     val extractedMessages: List<ChatMessage> = emptyList(),
     val lastAutofillStatus: String = "未尝试",
+    val lastAutofillCategory: AutofillFailureCategory = AutofillFailureCategory.NONE,
+    val lastAutofillSteps: List<String> = emptyList(),
     val lastAutofillPreview: String? = null,
     val updatedAtMillis: Long = 0L
 ) {
     val extractedMessagePreviews: List<String>
         get() = extractedMessages.map { message ->
             "${message.role.label}: ${message.content}"
+        }
+
+    val extractedMessageDebugPreviews: List<String>
+        get() = extractedMessages.mapIndexed { index, message ->
+            val confidence = ((message.confidence * 100).toInt()).coerceIn(0, 100)
+            val bounds = message.boundsHint ?: "no-bounds"
+            "${index + 1}. ${message.role.label} ${confidence}% [$bounds] ${message.content}"
         }
 }
 
@@ -76,12 +85,11 @@ object AccessibilityDebugStore {
         )
     }
 
-    fun onAutofillAttempt(
-        status: String,
-        text: String
-    ) {
+    fun onAutofillAttempt(result: AutofillAttemptResult, text: String) {
         _state.value = _state.value.copy(
-            lastAutofillStatus = status,
+            lastAutofillStatus = result.message,
+            lastAutofillCategory = result.category,
+            lastAutofillSteps = result.steps,
             lastAutofillPreview = text.take(30),
             updatedAtMillis = System.currentTimeMillis()
         )

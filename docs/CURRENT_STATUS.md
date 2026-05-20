@@ -36,7 +36,9 @@
 - Accessibility Service 已注册到 Manifest
 - Accessibility 配置文件已存在
 - App 首页提供系统设置跳转入口
-- 首页可展示真实无障碍调试状态、消息提取预览与填入结果
+- 首页可展示真实无障碍调试状态、消息提取调试样本与填入结果
+- 消息提取调试样本已展示角色、置信度、bounds 和文本，方便真机校准 Accessibility 规则
+- 首页已提供 `复制调试样本`，可把页面判定、输入框状态、提取消息和可见文本采样复制到剪贴板
 - 已有微信页面分析器 `WeChatAccessibilityAnalyzer`，并已增强顶部/底部区域过滤、控件文案过滤、重复节点去重和左右角色判定
 - 已有最小 `ChatMessage` / `ChatRole` / `MessageSource` 模型，并能按节点位置粗分“我 / 对方 / 系统”
 - 已有最小 `ChatContext` / `ConversationType` / `DefaultContextBuilder`
@@ -51,6 +53,7 @@
 - 已有最小 `OverlayButtonService`、`OverlayTriggerStore` 和候选面板
 - 微信悬浮候选面板已支持真实 LLM 生成，异常时保留本地兜底候选
 - 已有最小 Autofill 尝试链路：定位输入框、执行 `ACTION_SET_TEXT`、回读确认，并在必要时使用剪贴板粘贴兜底
+- Autofill 调试已支持失败分类和步骤 trace，可区分无障碍未连接、内容为空、窗口为空、输入框未找到、SET_TEXT 失败、粘贴失败和回读不一致
 
 ## 3. 未完成
 
@@ -61,9 +64,9 @@
 - Navigation 完整路由
 - MediaProjection 截图
 - ML Kit OCR
-- Accessibility 消息提取真机样本校准，包括群聊/引用/图片/表情等复杂消息形态
+- Accessibility 消息提取规则仍需基于真机样本继续校准，包括群聊/引用/图片/表情等复杂消息形态
 - LLM 诊断日志持久化、导出与更细粒度错误建议
-- Autofill 多机型兼容性验证、失败原因分级与更细日志
+- Autofill 多机型兼容性验证与机型差异样本积累
 - DataStore / Room
 - 日志诊断页面
 
@@ -87,8 +90,8 @@
 最建议优先推进的，是能把骨架变成“可继续迭代的工程底座”的工作：
 
 1. 把当前会话骨架从 Demo 推进到真实可复用链路
-2. 补齐 Autofill 多机型兼容验证与失败原因分级
-3. 增强 Accessibility 真机样本校准和 Autofill 兼容验证
+2. 补齐 Autofill 多机型兼容验证与机型差异样本积累
+3. 基于真机样本继续校准 Accessibility 规则和 Autofill 兼容性
 
 对应任务建议：
 
@@ -98,13 +101,13 @@
 - `ChatAppAdapter` 与 `WeChatAdapter` 接口抽象化
 - Accessibility 消息结构化提取真机校准
 - LLM 诊断日志持久化与导出
-- `AutofillEngine` 多机型兼容验证与失败原因分级
+- `AutofillEngine` 多机型兼容验证与机型差异样本积累
 
 ### Next
 
 在主链路骨架稳定后，再接提取和生成能力：
 
-1. Autofill 多机型兼容验证与失败原因分级
+1. Autofill 多机型兼容验证与机型差异样本积累
 2. Accessibility 真机样本校准
 3. OCR 兜底
 4. 设置页从最小表单升级为正式页面
