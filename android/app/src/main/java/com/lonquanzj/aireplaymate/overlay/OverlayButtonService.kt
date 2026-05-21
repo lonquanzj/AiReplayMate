@@ -660,24 +660,27 @@ class OverlayButtonService : Service() {
         val screenHeight = resources.displayMetrics.heightPixels
         val horizontalMargin = dp(16)
         val verticalMargin = dp(16)
-        val bubbleOffset = dp(6)
+        val gap = dp(8)
         val buttonParams = layoutParams
         val bubbleX = buttonParams?.x ?: horizontalMargin
+        val bubbleY = buttonParams?.y ?: dp(220)
         val bubbleWidth = buttonParams?.width?.takeIf { it > 0 } ?: dp(44)
-        val bubbleCenterX = bubbleX + (bubbleWidth / 2)
-        val maxX = (screenWidth - panelWidth - horizontalMargin).coerceAtLeast(horizontalMargin)
-        val panelX = if (bubbleCenterX >= screenWidth / 2) {
-            (bubbleX + bubbleWidth - panelWidth).coerceIn(horizontalMargin, maxX)
+        val bubbleHeight = buttonParams?.height?.takeIf { it > 0 } ?: dp(44)
+
+        val actualPanelWidth = panelWidth.coerceAtMost(screenWidth - horizontalMargin * 2)
+        val panelX = horizontalMargin
+        val measuredHeight = resolvePanelHeight(contentView, actualPanelWidth, panelHeight)
+
+        val belowY = bubbleY + bubbleHeight + gap
+        val aboveY = bubbleY - measuredHeight - gap
+        val panelY = if (belowY + measuredHeight + verticalMargin <= screenHeight) {
+            belowY
         } else {
-            bubbleX.coerceIn(horizontalMargin, maxX)
+            aboveY.coerceAtLeast(verticalMargin)
         }
-        val measuredHeight = resolvePanelHeight(contentView, panelWidth, panelHeight)
-        val anchoredY = (buttonParams?.y ?: dp(190)) - bubbleOffset
-        val maxY = (screenHeight - measuredHeight - verticalMargin).coerceAtLeast(verticalMargin)
-        val panelY = anchoredY.coerceIn(verticalMargin, maxY)
 
         return WindowManager.LayoutParams(
-            panelWidth,
+            actualPanelWidth,
             panelHeight,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
