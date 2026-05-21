@@ -10,7 +10,7 @@ import org.junit.Test
 
 class DefaultPromptBuilderTest {
     @Test
-    fun build_forQuickReply_includes_persona_config_and_fixed_protocol() {
+    fun build_forQuickReply_keeps_persona_config_in_user_prompt_and_fixed_protocol_in_system() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(
                 listOf(
@@ -31,8 +31,10 @@ class DefaultPromptBuilderTest {
             )
         )
 
-        assertTrue(request.systemPrompt.contains("你是一个冷幽默但不冒犯的人。"))
-        assertTrue(request.systemPrompt.contains("回复短一点，轻轻调侃。"))
+        assertFalse(request.systemPrompt.contains("你是一个冷幽默但不冒犯的人。"))
+        assertFalse(request.systemPrompt.contains("回复短一点，轻轻调侃。"))
+        assertTrue(request.userPrompt.contains("你是一个冷幽默但不冒犯的人。"))
+        assertTrue(request.userPrompt.contains("回复短一点，轻轻调侃。"))
         assertTrue(request.systemPrompt.contains("输出协议"))
         assertTrue(request.userPrompt.contains("今晚有空吗？"))
         assertEquals(2f, request.temperature)
@@ -41,7 +43,7 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
-    fun build_forPlaybook_includes_playbook_identity_prompt_category_and_role() {
+    fun build_forPlaybook_keeps_identity_prompts_in_user_prompt() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(emptyList()),
             settings = AppSettings(candidateCount = 2),
@@ -59,16 +61,18 @@ class DefaultPromptBuilderTest {
             )
         )
 
-        assertTrue(request.systemPrompt.contains("话术身份：你正在帮用户发出自然邀约。"))
+        assertFalse(request.systemPrompt.contains("你正在帮用户发出自然邀约。"))
+        assertFalse(request.systemPrompt.contains("细腻暖男"))
         assertTrue(request.userPrompt.contains("话术分类：自定义邀约"))
         assertTrue(request.userPrompt.contains("话术名称：周末约饭"))
+        assertTrue(request.userPrompt.contains("话术身份：你正在帮用户发出自然邀约。"))
         assertTrue(request.userPrompt.contains("不要压迫对方"))
         assertTrue(request.userPrompt.contains("叠加角色风格：细腻暖男"))
         assertFalse(request.userPrompt.contains("聊天上下文："))
     }
 
     @Test
-    fun build_forPolish_includes_polish_identity_prompt_and_draft() {
+    fun build_forPolish_keeps_identity_prompts_in_user_prompt_and_draft() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(emptyList()),
             settings = AppSettings(candidateCount = 2),
@@ -85,8 +89,9 @@ class DefaultPromptBuilderTest {
             draftText = "我晚点回你"
         )
 
-        assertTrue(request.systemPrompt.contains("你正在把表达改得更松弛。"))
+        assertFalse(request.systemPrompt.contains("你正在把表达改得更松弛。"))
         assertTrue(request.userPrompt.contains("润色目标：更松弛"))
+        assertTrue(request.userPrompt.contains("润色身份：你正在把表达改得更松弛。"))
         assertTrue(request.userPrompt.contains("去掉压力感"))
         assertTrue(request.userPrompt.contains("我晚点回你"))
         assertTrue(request.systemPrompt.contains("输出协议"))

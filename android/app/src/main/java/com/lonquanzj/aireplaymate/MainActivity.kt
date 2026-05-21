@@ -1154,7 +1154,9 @@ private fun ReplyStyleSection(
 ) {
     var previewRequest by remember { mutableStateOf<LlmRequest?>(null) }
     var editingItem by remember { mutableStateOf<StyleEditTarget?>(null) }
-    var isEditMode by remember { mutableStateOf(false) }
+    var isPersonaEditMode by remember { mutableStateOf(false) }
+    var isPlaybookEditMode by remember { mutableStateOf(false) }
+    var isPolishEditMode by remember { mutableStateOf(false) }
 
     previewRequest?.let { request ->
         AlertDialog(
@@ -1217,13 +1219,6 @@ private fun ReplyStyleSection(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
             )
-            OutlinedButton(
-                onClick = { isEditMode = !isEditMode },
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = ButtonDefaults.ContentPadding
-            ) {
-                Text(if (isEditMode) "完成" else "编辑")
-            }
         }
 
         Card(
@@ -1243,21 +1238,29 @@ private fun ReplyStyleSection(
 
                 StatusRow(label = "默认回复", value = profile.asDefaultReply().displayLabel)
 
-                Text(
-                    text = "角色",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                HorizontalDivider()
+                StyleCategoryHeader(
+                    title = "角色",
+                    isEditMode = isPersonaEditMode,
+                    onEditClick = { isPersonaEditMode = !isPersonaEditMode },
+                    onPreviewClick = {
+                        previewRequest = DefaultPromptBuilder.build(
+                            context = previewMessages.toPromptPreviewContext(),
+                            settings = AppSettings(candidateCount = 3),
+                            styleProfile = profile.asDefaultReply().withResolvedCatalog(catalog)
+                        )
+                    }
                 )
                 ChoiceButtonGrid(
                     items = catalog.personas.map { it.id to it.label },
                     selectedId = profile.personaConfig.id,
-                    isEditMode = isEditMode,
+                    isEditMode = isPersonaEditMode,
                     onAdd = {
                         editingItem = StyleEditTarget.Persona(newCustomPersonaConfig())
                     },
                     onSelect = { personaId ->
                         val persona = catalog.resolvePersona(personaId)
-                        if (isEditMode) {
+                        if (isPersonaEditMode) {
                             editingItem = StyleEditTarget.Persona(persona)
                         } else {
                             onProfileChange(
@@ -1268,21 +1271,30 @@ private fun ReplyStyleSection(
                     }
                 )
 
-                Text(
-                    text = "话术宝典",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                HorizontalDivider()
+                StyleCategoryHeader(
+                    title = "话术宝典",
+                    isEditMode = isPlaybookEditMode,
+                    onEditClick = { isPlaybookEditMode = !isPlaybookEditMode },
+                    onPreviewClick = {
+                        previewRequest = DefaultPromptBuilder.build(
+                            context = previewMessages.toPromptPreviewContext(),
+                            settings = AppSettings(candidateCount = 3),
+                            styleProfile = profile.copy(mode = ReplyStyleMode.PLAYBOOK)
+                                .withResolvedCatalog(catalog)
+                        )
+                    }
                 )
                 PlaybookChoiceGroups(
                     playbooks = catalog.playbooks,
                     selectedId = profile.playbookConfig.id,
-                    isEditMode = isEditMode,
+                    isEditMode = isPlaybookEditMode,
                     onAdd = { categoryLabel ->
                         editingItem = StyleEditTarget.Playbook(newCustomPlaybookConfig(categoryLabel))
                     },
                     onSelect = { playbookId ->
                         val playbook = catalog.resolvePlaybook(playbookId)
-                        if (isEditMode) {
+                        if (isPlaybookEditMode) {
                             editingItem = StyleEditTarget.Playbook(playbook)
                         } else {
                             onProfileChange(
@@ -1293,21 +1305,31 @@ private fun ReplyStyleSection(
                     }
                 )
 
-                Text(
-                    text = "润色表达",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                HorizontalDivider()
+                StyleCategoryHeader(
+                    title = "润色表达",
+                    isEditMode = isPolishEditMode,
+                    onEditClick = { isPolishEditMode = !isPolishEditMode },
+                    onPreviewClick = {
+                        previewRequest = DefaultPromptBuilder.build(
+                            context = previewMessages.toPromptPreviewContext(),
+                            settings = AppSettings(candidateCount = 3),
+                            styleProfile = profile.copy(mode = ReplyStyleMode.POLISH)
+                                .withResolvedCatalog(catalog),
+                            draftText = "今晚有空的话，我想和你聊会儿。"
+                        )
+                    }
                 )
                 ChoiceButtonGrid(
                     items = catalog.polishGoals.map { it.id to it.label },
                     selectedId = profile.polishGoalConfig.id,
-                    isEditMode = isEditMode,
+                    isEditMode = isPolishEditMode,
                     onAdd = {
                         editingItem = StyleEditTarget.Polish(newCustomPolishGoalConfig())
                     },
                     onSelect = { goalId ->
                         val goal = catalog.resolvePolishGoal(goalId)
-                        if (isEditMode) {
+                        if (isPolishEditMode) {
                             editingItem = StyleEditTarget.Polish(goal)
                         } else {
                             onProfileChange(
@@ -1323,41 +1345,59 @@ private fun ReplyStyleSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Prompt 调试",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                OutlinedButton(
-                    onClick = {
-                previewRequest = DefaultPromptBuilder.build(
-                    context = previewMessages.toPromptPreviewContext(),
-                    settings = AppSettings(candidateCount = 3),
-                            styleProfile = profile.asDefaultReply()
-                )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("测试 Prompt")
-                }
                 TextButton(onClick = onResetBuiltinCatalog) {
                     Text("恢复内置项默认")
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StyleCategoryHeader(
+    title: String,
+    isEditMode: Boolean,
+    onEditClick: () -> Unit,
+    onPreviewClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        StyleSmallActionButton(
+            text = if (isEditMode) "完成" else "编辑",
+            onClick = onEditClick
+        )
+        StyleSmallActionButton(
+            text = "Prompt 预览",
+            onClick = onPreviewClick
+        )
+    }
+}
+
+@Composable
+private fun StyleSmallActionButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+        )
     }
 }
 

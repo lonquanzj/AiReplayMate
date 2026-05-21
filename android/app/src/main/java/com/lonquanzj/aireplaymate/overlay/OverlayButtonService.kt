@@ -374,7 +374,7 @@ class OverlayButtonService : Service() {
         addCompactGrid(
             parent = content,
             items = catalog.personas,
-            columns = 3,
+            columns = 5,
             topMarginDp = 8
         ) { personaConfig ->
             val profile = current.copy(
@@ -393,7 +393,7 @@ class OverlayButtonService : Service() {
                 addCompactGrid(
                     parent = content,
                     items = playbooks,
-                    columns = 3,
+                    columns = 5,
                     topMarginDp = 6
                 ) { playbook ->
                     val profile = current.copy(
@@ -413,7 +413,7 @@ class OverlayButtonService : Service() {
         addCompactGrid(
             parent = content,
             items = catalog.polishGoals,
-            columns = 3,
+            columns = 5,
             topMarginDp = 8
         ) { goal ->
             val profile = current.copy(
@@ -511,7 +511,7 @@ class OverlayButtonService : Service() {
             setTextColor(0xFF3F2B78.toInt())
             maxLines = 2
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(4), dp(8), dp(4), dp(8))
             background = softPurpleCardBackground()
             setOnClickListener {
                 val draftText = if (requiresDraft) {

@@ -33,8 +33,6 @@ object DefaultPromptBuilder : PromptBuilder {
         return buildString {
             appendLine(DEFAULT_SYSTEM_PROMPT)
             appendLine(SAFETY_PROMPT)
-            appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
-            appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
             when (styleProfile.mode) {
                 ReplyStyleMode.QUICK_REPLY -> {
                     appendLine("当前模式：快速回复。基于最近聊天自然回复，优先像真人手动输入，不要像营销话术。")
@@ -42,14 +40,10 @@ object DefaultPromptBuilder : PromptBuilder {
 
                 ReplyStyleMode.PLAYBOOK -> {
                     appendLine("当前模式：话术宝典。")
-                    appendLine("话术身份：${styleProfile.playbookConfig.identityPrompt}")
-                    appendLine("话术提示词：${styleProfile.playbookConfig.promptGuide}")
                 }
 
                 ReplyStyleMode.POLISH -> {
                     appendLine("当前模式：润色表达。")
-                    appendLine("润色身份：${styleProfile.polishGoalConfig.identityPrompt}")
-                    appendLine("润色提示词：${styleProfile.polishGoalConfig.promptGuide}")
                 }
             }
             appendLine("表达要求：中文口语化、短句优先、有分寸；每条候选不超过 45 个字，除非上下文明显需要更长。")
@@ -81,6 +75,8 @@ object DefaultPromptBuilder : PromptBuilder {
             appendLine("下面是微信单聊的最近聊天上下文。")
             appendLine("请基于上下文生成 $candidateCount 条中文候选回复，要求自然、简洁、可直接填入输入框。")
             appendLine("本次角色：${styleProfile.personaConfig.label}。")
+            appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
+            appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
             appendLine()
             appendLine("最近一条对方消息：")
             appendLine(latestFriendMessage?.content.safeForPrompt("未识别到明确的对方消息"))
@@ -102,7 +98,9 @@ object DefaultPromptBuilder : PromptBuilder {
             appendLine("话术名称：${styleProfile.playbookConfig.label}")
             appendLine("话术身份：${styleProfile.playbookConfig.identityPrompt}")
             appendLine("话术提示词：${styleProfile.playbookConfig.promptGuide}")
-            appendLine("叠加角色风格：${styleProfile.personaConfig.label}。${styleProfile.personaConfig.promptGuide}")
+            appendLine("叠加角色风格：${styleProfile.personaConfig.label}")
+            appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
+            appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
             appendLine("要求：可直接填入微信输入框，像真人临场写出来，不要出现模板变量、占位符、解释说明或列表编号。")
         }
     }
@@ -117,7 +115,9 @@ object DefaultPromptBuilder : PromptBuilder {
             appendLine("润色目标：${styleProfile.polishGoalConfig.label}")
             appendLine("润色身份：${styleProfile.polishGoalConfig.identityPrompt}")
             appendLine("润色提示词：${styleProfile.polishGoalConfig.promptGuide}")
-            appendLine("叠加角色风格：${styleProfile.personaConfig.label}。${styleProfile.personaConfig.promptGuide}")
+            appendLine("叠加角色风格：${styleProfile.personaConfig.label}")
+            appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
+            appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
             appendLine("要求：只改写表达，不新增事实、不替用户承诺现实动作；保留原意，适合直接回写到输入框。")
             appendLine()
             appendLine("草稿：")
@@ -143,9 +143,9 @@ object DefaultPromptBuilder : PromptBuilder {
     private const val MAX_PROMPT_MESSAGES = 20
     private val controlCharsRegex = Regex("[\\p{Cntrl}&&[^\n\t]]+")
     private const val DEFAULT_SYSTEM_PROMPT =
-        "你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复，不能代表用户承诺已经完成现实动作。"
+        "你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复。"
     private const val SAFETY_PROMPT =
-        "安全边界：不得自动替用户承诺付款、见面、合同、发送文件、已经完成某个现实动作；不得冒犯、PUA、贬低、威胁或越界。"
+        "安全边界：不得自动替用户承诺付款、合同、发送文件。"
     private const val OUTPUT_PROTOCOL_PROMPT =
         "输出协议：请严格返回 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。不要使用列表编号、引号、解释性前缀。"
 }
