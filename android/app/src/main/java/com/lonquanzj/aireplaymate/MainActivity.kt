@@ -128,6 +128,7 @@ import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
 import com.lonquanzj.aireplaymate.session.SessionState
+import com.lonquanzj.aireplaymate.session.SessionUiState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -195,7 +196,6 @@ private fun MainScreen(
 ) {
     val sessionManager = remember { DemoSessionManager() }
     val sessionState by sessionManager.state.collectAsState()
-    var selectedTab by remember { mutableStateOf(HomeTab.MAIN) }
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
     var testingLlm by remember { mutableStateOf(false) }
@@ -209,56 +209,11 @@ private fun MainScreen(
         mutableStateOf(ReplyStyleCatalogStore.load(context))
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val debugState by AccessibilityDebugStore.state.collectAsState()
-    val llmDebugState by LlmDebugStore.state.collectAsState()
-    val ocrDebugState by OcrDebugStore.state.collectAsState()
-    val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
-    val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
-    val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
-    val overlayServiceState by OverlayServiceStateStore.state.collectAsState()
-    val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
-    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
-    var testingScreenCapture by remember { mutableStateOf(false) }
-    var testingOcrRecognition by remember { mutableStateOf(false) }
-    val mainTabScrollState = rememberScrollState()
-    val llmTabScrollState = rememberScrollState()
-    val styleTabScrollState = rememberScrollState()
-    val debugTabScrollState = rememberScrollState()
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
     val mediaProjectionManager = remember(context) {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
     }
-    val screenCapturePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        OcrCapturePermissionStore.onPermissionResult(
-            resultCode = result.resultCode,
-            data = result.data
-        )
-        Toast.makeText(
-            context,
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                "屏幕截图授权已就绪"
-            } else {
-                "屏幕截图授权未完成"
-            },
-            Toast.LENGTH_SHORT
-        ).show()
-    }
-
-    val previewMessages = remember(
-        sessionState.extractedMessages,
-        previewContextState.messages,
-        debugState.extractedMessages
-    ) {
-        when {
-            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
-            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
-            else -> debugState.extractedMessages.toPreviewMessages()
-        }
-    }
-    val previewConversationTitle = previewContextState.conversationTitle ?: debugState.conversationTitle
 
     DisposableEffect(lifecycleOwner, loadPermissionSnapshot) {
         val observer = LifecycleEventObserver { _, event ->
@@ -278,26 +233,22 @@ private fun MainScreen(
         OverlayTriggerStore.consume(request.id)
     }
 
-    LaunchedEffect(llmDebugState.updatedAtMillis) {
-        DiagnosticLogStore.recordLlm(llmDebugState)
-    }
-
-    LaunchedEffect(ocrDebugState.updatedAtMillis) {
-        DiagnosticLogStore.recordOcr(ocrDebugState)
-    }
-
-    LaunchedEffect(overlayDiagnosticsState.updatedAtMillis) {
-        DiagnosticLogStore.recordOverlay(overlayDiagnosticsState)
-    }
-
-    LaunchedEffect(selectedTab) {
-        if (pagerState.currentPage != selectedTab.ordinal) {
-            pagerState.animateScrollToPage(selectedTab.ordinal)
+    LaunchedEffect(Unit) {
+        LlmDebugStore.state.collect { state ->
+            DiagnosticLogStore.recordLlm(state)
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        selectedTab = HomeTab.entries[pagerState.currentPage]
+    LaunchedEffect(Unit) {
+        OcrDebugStore.state.collect { state ->
+            DiagnosticLogStore.recordOcr(state)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        OverlayDiagnosticsStore.state.collect { state ->
+            DiagnosticLogStore.recordOverlay(state)
+        }
     }
 
     if (sessionState.showCandidateSheet) {
@@ -416,13 +367,17 @@ private fun MainScreen(
                     .padding(padding)
             ) {
                 ScrollableTabRow(
-                    selectedTabIndex = selectedTab.ordinal,
+                    selectedTabIndex = pagerState.currentPage,
                     edgePadding = 12.dp
                 ) {
-                    HomeTab.entries.forEach { tab ->
+                    HomeTab.entries.forEachIndexed { index, tab ->
                         Tab(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            selected = pagerState.currentPage == index,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            },
                             text = { Text(tab.label) }
                         )
                     }
@@ -432,60 +387,26 @@ private fun MainScreen(
                     state = pagerState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
+                        .fillMaxWidth(),
+                    key = { it }
                 ) { page ->
                     when (HomeTab.entries[page]) {
                         HomeTab.MAIN -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(mainTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            DailyHomeHeader(
+                            MainTabContent(
                                 permissionSnapshot = permissionSnapshot,
-                                overlayServiceState = overlayServiceState,
-                                llmValidation = AppSettingsValidator.validate(appSettings),
-                                latestLogTitle = diagnosticLogState.entries.firstOrNull()?.title
-                            )
-
-                            PermissionStatusSection(
-                                permissionSnapshot = permissionSnapshot,
-                                overlayServiceState = overlayServiceState,
+                                appSettings = appSettings,
                                 onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                 onOpenOverlaySettings = onOpenOverlaySettings,
                                 onStartOverlayService = onStartOverlayService,
-                                onStopOverlayService = onStopOverlayService
+                                onStopOverlayService = onStopOverlayService,
+                                onShowAboutDialog = { showAboutDialog = true }
                             )
-
-                            ConversationPreviewSection(
-                                conversationTitle = previewConversationTitle,
-                                messages = previewMessages
-                            )
-
-                            DiagnosticLogSection(logState = diagnosticLogState)
-
-                            AboutEntry(onClick = { showAboutDialog = true })
-
-                            Spacer(modifier = Modifier.height(24.dp))
                         }
-                    }
 
-                    HomeTab.LLM -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(llmTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            LlmSettingsSection(
-                                settings = appSettings,
-                                validation = AppSettingsValidator.validate(appSettings),
-                                isTesting = testingLlm,
+                        HomeTab.LLM -> {
+                            LlmTabContent(
+                                appSettings = appSettings,
+                                testingLlm = testingLlm,
                                 onSettingsChange = {
                                     appSettings = it
                                     saveAppSettings(it)
@@ -498,24 +419,12 @@ private fun MainScreen(
                                     }
                                 }
                             )
-
-                            LlmDiagnosticsSection(debugState = llmDebugState)
-
-                            Spacer(modifier = Modifier.height(24.dp))
                         }
-                    }
 
-                    HomeTab.STYLE -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .fillMaxWidth()
-                                .verticalScroll(styleTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            ReplyStyleSection(
-                                profile = replyStyleProfile,
-                                catalog = replyStyleCatalog,
+                        HomeTab.STYLE -> {
+                            StyleTabContent(
+                                replyStyleProfile = replyStyleProfile,
+                                replyStyleCatalog = replyStyleCatalog,
                                 onProfileChange = { nextProfile ->
                                     replyStyleProfile = nextProfile
                                     ReplyStyleSettingsStore.save(context, nextProfile)
@@ -531,106 +440,18 @@ private fun MainScreen(
                                     replyStyleCatalog = nextCatalog
                                     replyStyleProfile = replyStyleProfile.withResolvedCatalog(nextCatalog)
                                     ReplyStyleSettingsStore.save(context, replyStyleProfile)
-                                },
-                                previewMessages = previewMessages
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                        }
-                    }
-
-                    HomeTab.ADVANCED -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(debugTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            HeroCard(
-                                currentStage = sessionState.currentState,
-                                stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
-                                isRunning = sessionState.isRunning,
-                                conversationTitle = debugState.conversationTitle,
-                                serviceConnected = debugState.serviceConnected,
-                                onRun = {
-                                    if (!sessionState.isRunning) {
-                                        scope.launch {
-                                            sessionManager.run(debugState, replyStyleProfile.asDefaultReply())
-                                        }
-                                    }
-                                },
-                                onReset = {
-                                    if (!sessionState.isRunning) {
-                                        sessionManager.reset()
-                                    }
                                 }
                             )
-
-                            SessionStageSection(
-                                currentStage = sessionState.currentState,
-                                progressStage = sessionState.progressState
-                            )
-
-                            ReplyDraftSection(
-                                replyDraft = sessionState.replyDraft,
-                                onReplyDraftChange = sessionManager::updateReplyDraft,
-                                onTryRealAutofill = {
-                                    val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
-                                    sessionManager.noteRealAutofillResult(result.message)
-                                },
-                                canTryRealAutofill = sessionState.replyDraft.isNotBlank()
-                            )
-
-                            OcrFallbackSection(
-                                debugState = ocrDebugState,
-                                capturePermissionState = ocrCapturePermissionState,
-                                screenCaptureState = ocrScreenCaptureState,
-                                isTestingScreenCapture = testingScreenCapture,
-                                isTestingOcrRecognition = testingOcrRecognition,
-                                onRequestCapturePermission = {
-                                    screenCapturePermissionLauncher.launch(
-                                        mediaProjectionManager.createScreenCaptureIntent()
-                                    )
-                                },
-                                onTestScreenCapture = {
-                                    scope.launch {
-                                        testingScreenCapture = true
-                                        val result = AndroidScreenCaptureProvider(context.applicationContext)
-                                            .captureOnce(ocrCapturePermissionState)
-                                        testingScreenCapture = false
-                                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                onTestOcrRecognition = {
-                                    scope.launch {
-                                        testingOcrRecognition = true
-                                        val result = MlKitChineseOcrEngine(context.applicationContext)
-                                            .recognizeChatMessages(
-                                                targetApp = "wechat",
-                                                reason = "高级调试手动测试 OCR 识别"
-                                            )
-                                        testingOcrRecognition = false
-                                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
-
-                            OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
-
-                            RealAccessibilitySection(
-                                debugState = debugState,
-                                ocrDebugState = ocrDebugState
-                            )
-
-                            DiagnosticLogSection(logState = diagnosticLogState)
-
-                            ActivityLogSection(entries = sessionState.activityLog)
-
-                            Spacer(modifier = Modifier.height(24.dp))
                         }
-                    }
+
+                        HomeTab.ADVANCED -> {
+                            AdvancedTabContent(
+                                sessionManager = sessionManager,
+                                sessionState = sessionState,
+                                replyStyleProfile = replyStyleProfile,
+                                mediaProjectionManager = mediaProjectionManager
+                            )
+                        }
                     }
                 }
             }
@@ -639,6 +460,277 @@ private fun MainScreen(
 
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+}
+
+@Composable
+private fun MainTabContent(
+    permissionSnapshot: PermissionSnapshot,
+    appSettings: AppSettings,
+    onOpenAccessibilitySettings: () -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+    onStartOverlayService: () -> Unit,
+    onStopOverlayService: () -> Unit,
+    onShowAboutDialog: () -> Unit
+) {
+    val overlayServiceState by OverlayServiceStateStore.state.collectAsState()
+    val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
+    val debugState by AccessibilityDebugStore.state.collectAsState()
+    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
+    val sessionManager = remember { DemoSessionManager() }
+    val sessionState by sessionManager.state.collectAsState()
+
+    val previewMessages = remember(
+        sessionState.extractedMessages,
+        previewContextState.messages,
+        debugState.extractedMessages
+    ) {
+        when {
+            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
+            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
+            else -> debugState.extractedMessages.toPreviewMessages()
+        }
+    }
+    val previewConversationTitle = previewContextState.conversationTitle ?: debugState.conversationTitle
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        DailyHomeHeader(
+            permissionSnapshot = permissionSnapshot,
+            overlayServiceState = overlayServiceState,
+            llmValidation = AppSettingsValidator.validate(appSettings),
+            latestLogTitle = diagnosticLogState.entries.firstOrNull()?.title
+        )
+
+        PermissionStatusSection(
+            permissionSnapshot = permissionSnapshot,
+            overlayServiceState = overlayServiceState,
+            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+            onOpenOverlaySettings = onOpenOverlaySettings,
+            onStartOverlayService = onStartOverlayService,
+            onStopOverlayService = onStopOverlayService
+        )
+
+        ConversationPreviewSection(
+            conversationTitle = previewConversationTitle,
+            messages = previewMessages
+        )
+
+        DiagnosticLogSection(logState = diagnosticLogState)
+
+        AboutEntry(onClick = onShowAboutDialog)
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun LlmTabContent(
+    appSettings: AppSettings,
+    testingLlm: Boolean,
+    onSettingsChange: (AppSettings) -> Unit,
+    onTestConnection: () -> Unit
+) {
+    val llmDebugState by LlmDebugStore.state.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        LlmSettingsSection(
+            settings = appSettings,
+            validation = AppSettingsValidator.validate(appSettings),
+            isTesting = testingLlm,
+            onSettingsChange = onSettingsChange,
+            onTestConnection = onTestConnection
+        )
+
+        LlmDiagnosticsSection(debugState = llmDebugState)
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun StyleTabContent(
+    replyStyleProfile: ReplyStyleProfile,
+    replyStyleCatalog: ReplyStyleCatalogState,
+    onProfileChange: (ReplyStyleProfile) -> Unit,
+    onCatalogChange: (ReplyStyleCatalogState) -> Unit,
+    onResetBuiltinCatalog: () -> Unit
+) {
+    val debugState by AccessibilityDebugStore.state.collectAsState()
+    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
+    val sessionManager = remember { DemoSessionManager() }
+    val sessionState by sessionManager.state.collectAsState()
+
+    val previewMessages = remember(
+        sessionState.extractedMessages,
+        previewContextState.messages,
+        debugState.extractedMessages
+    ) {
+        when {
+            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
+            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
+            else -> debugState.extractedMessages.toPreviewMessages()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        ReplyStyleSection(
+            profile = replyStyleProfile,
+            catalog = replyStyleCatalog,
+            onProfileChange = onProfileChange,
+            onCatalogChange = onCatalogChange,
+            onResetBuiltinCatalog = onResetBuiltinCatalog,
+            previewMessages = previewMessages
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun AdvancedTabContent(
+    sessionManager: DemoSessionManager,
+    sessionState: SessionUiState,
+    replyStyleProfile: ReplyStyleProfile,
+    mediaProjectionManager: MediaProjectionManager
+) {
+    val debugState by AccessibilityDebugStore.state.collectAsState()
+    val ocrDebugState by OcrDebugStore.state.collectAsState()
+    val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
+    val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
+    val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
+    val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var testingScreenCapture by remember { mutableStateOf(false) }
+    var testingOcrRecognition by remember { mutableStateOf(false) }
+
+    val screenCapturePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        OcrCapturePermissionStore.onPermissionResult(
+            resultCode = result.resultCode,
+            data = result.data
+        )
+        Toast.makeText(
+            context,
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                "屏幕截图授权已就绪"
+            } else {
+                "屏幕截图授权未完成"
+            },
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        HeroCard(
+            currentStage = sessionState.currentState,
+            stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
+            isRunning = sessionState.isRunning,
+            conversationTitle = debugState.conversationTitle,
+            serviceConnected = debugState.serviceConnected,
+            onRun = {
+                if (!sessionState.isRunning) {
+                    scope.launch {
+                        sessionManager.run(debugState, replyStyleProfile.asDefaultReply())
+                    }
+                }
+            },
+            onReset = {
+                if (!sessionState.isRunning) {
+                    sessionManager.reset()
+                }
+            }
+        )
+
+        SessionStageSection(
+            currentStage = sessionState.currentState,
+            progressStage = sessionState.progressState
+        )
+
+        ReplyDraftSection(
+            replyDraft = sessionState.replyDraft,
+            onReplyDraftChange = sessionManager::updateReplyDraft,
+            onTryRealAutofill = {
+                val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
+                sessionManager.noteRealAutofillResult(result.message)
+            },
+            canTryRealAutofill = sessionState.replyDraft.isNotBlank()
+        )
+
+        OcrFallbackSection(
+            debugState = ocrDebugState,
+            capturePermissionState = ocrCapturePermissionState,
+            screenCaptureState = ocrScreenCaptureState,
+            isTestingScreenCapture = testingScreenCapture,
+            isTestingOcrRecognition = testingOcrRecognition,
+            onRequestCapturePermission = {
+                screenCapturePermissionLauncher.launch(
+                    mediaProjectionManager.createScreenCaptureIntent()
+                )
+            },
+            onTestScreenCapture = {
+                scope.launch {
+                    testingScreenCapture = true
+                    val result = AndroidScreenCaptureProvider(context.applicationContext)
+                        .captureOnce(ocrCapturePermissionState)
+                    testingScreenCapture = false
+                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onTestOcrRecognition = {
+                scope.launch {
+                    testingOcrRecognition = true
+                    val result = MlKitChineseOcrEngine(context.applicationContext)
+                        .recognizeChatMessages(
+                            targetApp = "wechat",
+                            reason = "高级调试手动测试 OCR 识别"
+                        )
+                    testingOcrRecognition = false
+                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+
+        OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
+
+        RealAccessibilitySection(
+            debugState = debugState,
+            ocrDebugState = ocrDebugState
+        )
+
+        DiagnosticLogSection(logState = diagnosticLogState)
+
+        ActivityLogSection(entries = sessionState.activityLog)
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
