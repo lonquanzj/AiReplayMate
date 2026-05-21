@@ -10,7 +10,6 @@ import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
 import com.lonquanzj.aireplaymate.demo.DemoCandidate
 import com.lonquanzj.aireplaymate.demo.DemoMessage
-import com.lonquanzj.aireplaymate.demo.DemoScenario
 import com.lonquanzj.aireplaymate.ocr.PlaceholderOcrEngine
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import kotlinx.coroutines.delay
@@ -24,7 +23,7 @@ enum class SessionState(
     val detail: String,
     val progress: Int
 ) {
-    IDLE("待机", "等待你触发一次完整演示", -1),
+    IDLE("待机", "等待你触发一次回复生成", -1),
     VALIDATING_TARGET("校验目标页面", "确认当前处于微信单聊场景", 0),
     COLLECTING_ACCESSIBILITY("提取聊天上下文", "优先使用 Accessibility 抽取最近可见消息", 1),
     COLLECTING_OCR("OCR 兜底", "当 Accessibility 上下文不足时尝试 OCR 补齐", 2),
@@ -32,7 +31,7 @@ enum class SessionState(
     REQUESTING_LLM("生成候选回复", "根据上下文生成 3 条可直接发送的回复", 4),
     CANDIDATE_READY("候选已就绪", "底部面板展示候选，等待用户选择", 5),
     AUTOFILLING("自动填入", "把选中的回复写入输入框", 6),
-    DONE("演示完成", "主链路已经跑通，用户保留最终发送权", 7),
+    DONE("生成完成", "候选已填入输入框，用户仍保留最终发送权", 7),
     FAILED("执行失败", "当前条件不满足主链路要求，请调整后重试", -1),
     CANCELLED("已取消", "候选面板已关闭，本次会话结束", -1)
 }
@@ -55,18 +54,7 @@ class DemoSessionManager {
     private val _state = MutableStateFlow(SessionUiState())
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
-    fun prepareScenario(scenario: DemoScenario) {
-        val current = _state.value
-        if (current.isRunning) return
-
-        _state.value = SessionUiState(
-            extractedMessages = scenario.messages,
-            activityLog = listOf("已切换到 ${scenario.title} 场景")
-        )
-    }
-
-    suspend fun runDemo(
-        scenario: DemoScenario,
+    suspend fun run(
         debugState: AccessibilityDebugState,
         styleProfile: ReplyStyleProfile = ReplyStyleProfile()
     ) {
@@ -79,20 +67,11 @@ class DemoSessionManager {
         _state.value = SessionUiState(
             currentState = SessionState.VALIDATING_TARGET,
             progressState = SessionState.VALIDATING_TARGET,
-            isRunning = true,
-            extractedMessages = scenario.messages
+            isRunning = true
         )
 
         val liveTargetError = validateLiveTarget(debugState)
-        val liveMode = liveTargetError == null && debugState.serviceConnected
-
-        appendLog(
-            if (liveMode) {
-                "已识别真实微信聊天页，优先使用实时上下文"
-            } else {
-                "无障碍未连接，使用 Demo 场景继续演示"
-            }
-        )
+        appendLog("开始校验微信聊天页并准备整理上下文")
         delay(450)
 
         if (liveTargetError != null) {
@@ -104,21 +83,17 @@ class DemoSessionManager {
             it.copy(
                 currentState = SessionState.COLLECTING_ACCESSIBILITY,
                 progressState = SessionState.COLLECTING_ACCESSIBILITY,
-                usesLiveAccessibility = liveMode
+                usesLiveAccessibility = true
             )
         }
 
-        val rawMessages = if (liveMode && debugState.extractedMessages.isNotEmpty()) {
-            debugState.extractedMessages
-        } else {
-            scenario.messages.toChatMessages()
-        }
+        val rawMessages = debugState.extractedMessages
 
         appendLog(
-            if (liveMode && debugState.extractedMessages.isNotEmpty()) {
+            if (rawMessages.isNotEmpty()) {
                 "Accessibility 提取到 ${rawMessages.size} 条真实消息"
             } else {
-                "已装载 ${rawMessages.size} 条 Demo 消息用于生成"
+                "Accessibility 暂未提取到消息，准备尝试 OCR 兜底"
             }
         )
         delay(700)
@@ -137,7 +112,7 @@ class DemoSessionManager {
             conversationType = ConversationType.SINGLE_CHAT
         )
 
-        if (liveMode && !context.enoughForReply) {
+        if (!context.enoughForReply) {
             _state.update {
                 it.copy(
                     currentState = SessionState.COLLECTING_OCR,
@@ -147,7 +122,7 @@ class DemoSessionManager {
             appendLog("Accessibility 上下文不足，开始尝试 OCR 兜底")
             val ocrResult = PlaceholderOcrEngine.recognizeChatMessages(
                 targetApp = WECHAT_TARGET_APP,
-                reason = "Demo 主链路整理上下文前补齐消息"
+                reason = "首页整理上下文前补齐消息"
             )
             appendLog("OCR 兜底：${ocrResult.message}")
             delay(350)
@@ -186,7 +161,7 @@ class DemoSessionManager {
         delay(900)
 
         val nextRound = _state.value.generationRound + 1
-        val candidates = context.toDemoCandidates(scenario, styleProfile, nextRound)
+        val candidates = context.toUiCandidates(styleProfile, nextRound)
 
         _state.update {
             it.copy(
@@ -202,14 +177,13 @@ class DemoSessionManager {
     }
 
     fun regenerateCandidates(
-        scenario: DemoScenario,
         styleProfile: ReplyStyleProfile = ReplyStyleProfile()
     ) {
         val current = _state.value
         if (current.currentState != SessionState.CANDIDATE_READY) return
 
         val nextRound = current.generationRound + 1
-        val messages = current.extractedMessages.ifEmpty { scenario.messages }
+        val messages = current.extractedMessages
         val context = DefaultContextBuilder.build(
             accessibilityMessages = messages.toChatMessages(),
             targetApp = WECHAT_TARGET_APP,
@@ -217,7 +191,7 @@ class DemoSessionManager {
         )
         _state.update {
             it.copy(
-                candidates = context.toDemoCandidates(scenario, styleProfile, nextRound),
+                candidates = context.toUiCandidates(styleProfile, nextRound),
                 generationRound = nextRound
             )
         }
@@ -262,10 +236,9 @@ class DemoSessionManager {
         appendLog(reason)
     }
 
-    fun reset(scenario: DemoScenario) {
+    fun reset() {
         _state.value = SessionUiState(
-            extractedMessages = scenario.messages,
-            activityLog = listOf("已重置演示状态")
+            activityLog = listOf("已重置当前状态")
         )
     }
 
@@ -297,7 +270,7 @@ class DemoSessionManager {
 
     private fun validateLiveTarget(debugState: AccessibilityDebugState): String? {
         if (!debugState.serviceConnected) {
-            return null
+            return "无障碍服务未连接，请先开启后再试"
         }
 
         if (!debugState.isWechatPackage) {
@@ -350,12 +323,11 @@ class DemoSessionManager {
         }
     }
 
-    private fun ChatContext.toDemoCandidates(
-        scenario: DemoScenario,
+    private fun ChatContext.toUiCandidates(
         styleProfile: ReplyStyleProfile,
         round: Int
     ): List<DemoCandidate> {
-        val seed = "$WECHAT_TARGET_APP:${scenario.id}:$round:" +
+        val seed = "$WECHAT_TARGET_APP:$round:" +
             messages.joinToString("|") { it.content }
         return LocalFallbackReplyGenerator.generate(
             context = this,

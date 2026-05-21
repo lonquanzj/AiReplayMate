@@ -286,17 +286,15 @@ class OverlayButtonService : Service() {
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             background = overlayPanelBackground()
             elevation = 14f
         }
 
         panel.addView(
-            TextView(this).apply {
-                text = "候选回复 · ${styleProfile.shortLabel}"
-                textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF3F2B78.toInt())
+            panelHeader("候选回复 · ${styleProfile.shortLabel}") {
+                OverlayDiagnosticsStore.onDone("用户关闭候选面板")
+                removeCandidatePanel()
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -317,41 +315,20 @@ class OverlayButtonService : Service() {
             )
         )
 
-        candidates.forEach { candidate ->
-            panel.addView(candidateView(candidate))
-        }
-
-        panel.addView(
-            TextView(this).apply {
-                text = "关闭"
-                gravity = Gravity.CENTER
-                textSize = 14f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(10), 0, 0)
-                setOnClickListener {
-                    OverlayDiagnosticsStore.onDone("用户关闭候选面板")
-                    removeCandidatePanel()
-                }
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        val params = WindowManager.LayoutParams(
-            dp(304),
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayWindowType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(16)
-            y = dp(190)
+        addCompactGrid(
+            parent = panel,
+            items = candidates,
+            columns = 2,
+            topMarginDp = 10
+        ) { candidate ->
+            candidateView(candidate)
         }
 
         candidatePanelView = panel
+        val params = anchoredPanelLayoutParams(
+            contentView = panel,
+            panelWidth = panelWidthDp(320)
+        )
         windowManager?.addView(panel, params)
     }
 
@@ -366,82 +343,79 @@ class OverlayButtonService : Service() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             background = overlayPanelBackground()
             elevation = 14f
         }
 
-        content.addView(menuTitle("选择 AI 回复风格"))
+        content.addView(
+            panelHeader("选择 AI 回复风格") {
+                removeCandidatePanel()
+            }
+        )
         content.addView(menuHint("短按气泡用默认风格；这里选择后会记住，并立即生成候选。"))
 
         content.addView(menuSectionLabel("角色"))
-        ReplyPersona.entries.forEach { persona ->
+        addCompactGrid(
+            parent = content,
+            items = ReplyPersona.entries.toList(),
+            columns = 3,
+            topMarginDp = 8
+        ) { persona ->
             val profile = current.copy(
                 mode = ReplyStyleMode.QUICK_REPLY,
                 persona = persona
             )
-            content.addView(menuButton(persona.label, profile))
+            menuButton(persona.label, profile)
         }
 
         content.addView(menuSectionLabel("话术宝典"))
-        ReplyStyleCatalog.scenes.forEach { scene ->
-            val profile = current.copy(
-                mode = ReplyStyleMode.PLAYBOOK,
-                playbookScene = scene
-            )
-            content.addView(menuButton("${scene.categoryLabel} · ${scene.sceneLabel}", profile, persistAsDefault = false))
-        }
+        ReplyStyleCatalog.scenes
+            .groupBy { it.categoryLabel }
+            .forEach { (categoryLabel, scenes) ->
+                content.addView(menuSubsectionLabel(categoryLabel))
+                addCompactGrid(
+                    parent = content,
+                    items = scenes,
+                    columns = 3,
+                    topMarginDp = 6
+                ) { scene ->
+                    val profile = current.copy(
+                        mode = ReplyStyleMode.PLAYBOOK,
+                        playbookScene = scene
+                    )
+                    menuButton(
+                        scene.sceneLabel,
+                        profile,
+                        persistAsDefault = false
+                    )
+                }
+            }
 
         content.addView(menuSectionLabel("润色表达"))
-        PolishGoal.entries.forEach { goal ->
+        addCompactGrid(
+            parent = content,
+            items = PolishGoal.entries.toList(),
+            columns = 3,
+            topMarginDp = 8
+        ) { goal ->
             val profile = current.copy(
                 mode = ReplyStyleMode.POLISH,
                 polishGoal = goal
             )
-            content.addView(menuButton(goal.label, profile, persistAsDefault = false, requiresDraft = true))
+            menuButton(goal.label, profile, persistAsDefault = false, requiresDraft = true)
         }
-
-        content.addView(
-            TextView(this).apply {
-                text = "关闭"
-                gravity = Gravity.CENTER
-                textSize = 14f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(12), 0, 0)
-                setOnClickListener { removeCandidatePanel() }
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
 
         val scrollView = ScrollView(this).apply {
             addView(content)
         }
-        val params = WindowManager.LayoutParams(
-            dp(304),
-            dp(500),
-            overlayWindowType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(16)
-            y = dp(150)
-        }
-
         candidatePanelView = scrollView
+        val params = anchoredPanelLayoutParams(
+            contentView = scrollView,
+            panelWidth = panelWidthDp(336),
+            panelHeight = dp(500)
+        )
         windowManager?.addView(scrollView, params)
-    }
-
-    private fun menuTitle(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFF3F2B78.toInt())
-        }
     }
 
     private fun menuHint(text: String): TextView {
@@ -449,7 +423,41 @@ class OverlayButtonService : Service() {
             this.text = text
             textSize = 12f
             setTextColor(0xFF7A659C.toInt())
-            setPadding(0, dp(6), 0, dp(4))
+            setPadding(0, dp(5), 0, dp(2))
+        }
+    }
+
+    private fun panelHeader(
+        title: String,
+        onClose: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                TextView(this@OverlayButtonService).apply {
+                    text = title
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(0xFF3F2B78.toInt())
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            addView(
+                TextView(this@OverlayButtonService).apply {
+                    text = "收起"
+                    textSize = 12f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF7A659C.toInt())
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    background = softPurpleCardBackground()
+                    setOnClickListener { onClose() }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
     }
 
@@ -459,7 +467,17 @@ class OverlayButtonService : Service() {
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFF9B6A1D.toInt())
-            setPadding(0, dp(12), 0, dp(2))
+            setPadding(0, dp(10), 0, dp(2))
+        }
+    }
+
+    private fun menuSubsectionLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF7A659C.toInt())
+            setPadding(0, dp(8), 0, 0)
         }
     }
 
@@ -471,9 +489,11 @@ class OverlayButtonService : Service() {
     ): TextView {
         return TextView(this).apply {
             text = label
-            textSize = 14f
+            textSize = 12f
             setTextColor(0xFF3F2B78.toInt())
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            maxLines = 2
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             background = softPurpleCardBackground()
             setOnClickListener {
                 val draftText = if (requiresDraft) {
@@ -492,22 +512,16 @@ class OverlayButtonService : Service() {
                 removeCandidatePanel()
                 triggerCandidateGeneration(profile, draftText)
             }
-        }.also { view ->
-            view.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
         }
     }
 
     private fun candidateView(candidate: OverlayCandidate): View {
         return TextView(this).apply {
             text = candidate.text
-            textSize = 15f
+            textSize = 14f
             setTextColor(0xFF3F2B78.toInt())
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            minLines = 2
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             background = softPurpleCardBackground()
             setOnClickListener {
                 val result = AccessibilityActionBridge.tryAutofill(candidate.text)
@@ -517,14 +531,6 @@ class OverlayButtonService : Service() {
                     OverlayDiagnosticsStore.onDone("候选已填入输入框，等待用户手动发送")
                     removeCandidatePanel()
                 }
-            }
-        }.also { view ->
-            val marginTop = dp(10)
-            view.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = marginTop
             }
         }
     }
@@ -548,7 +554,7 @@ class OverlayButtonService : Service() {
         removeCandidatePanel()
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             background = overlayPanelBackground()
             elevation = 14f
         }
@@ -571,14 +577,14 @@ class OverlayButtonService : Service() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                topMargin = dp(10)
+                topMargin = dp(8)
             }
         )
         val statusView = TextView(this).apply {
             text = status
             textSize = 13f
             setTextColor(0xFF7A659C.toInt())
-            setPadding(0, dp(10), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
         panel.addView(
             statusView,
@@ -588,23 +594,117 @@ class OverlayButtonService : Service() {
             )
         )
 
-        val params = WindowManager.LayoutParams(
-            dp(248),
-            WindowManager.LayoutParams.WRAP_CONTENT,
+        progressStatusView = statusView
+        progressIndicatorView = indicator
+        candidatePanelView = panel
+        val params = anchoredPanelLayoutParams(
+            contentView = panel,
+            panelWidth = dp(248)
+        )
+        windowManager?.addView(panel, params)
+        startProgressIndicatorAnimation(indicator)
+    }
+
+    private fun <T> addCompactGrid(
+        parent: LinearLayout,
+        items: List<T>,
+        columns: Int,
+        topMarginDp: Int,
+        viewFactory: (T) -> View
+    ) {
+        if (items.isEmpty()) return
+        val horizontalGap = dp(8)
+        val verticalGap = dp(8)
+        items.chunked(columns).forEachIndexed { rowIndex, rowItems ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            rowItems.forEachIndexed { itemIndex, item ->
+                row.addView(
+                    viewFactory(item),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (itemIndex > 0) {
+                            marginStart = horizontalGap
+                        }
+                    }
+                )
+            }
+            repeat(columns - rowItems.size) {
+                row.addView(
+                    View(this),
+                    LinearLayout.LayoutParams(0, 0, 1f).apply {
+                        if (row.childCount > 0) {
+                            marginStart = horizontalGap
+                        }
+                    }
+                )
+            }
+            parent.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = if (rowIndex == 0) dp(topMarginDp) else verticalGap
+                }
+            )
+        }
+    }
+
+    private fun anchoredPanelLayoutParams(
+        contentView: View,
+        panelWidth: Int,
+        panelHeight: Int = WindowManager.LayoutParams.WRAP_CONTENT
+    ): WindowManager.LayoutParams {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val horizontalMargin = dp(16)
+        val verticalMargin = dp(16)
+        val bubbleOffset = dp(6)
+        val buttonParams = layoutParams
+        val bubbleX = buttonParams?.x ?: horizontalMargin
+        val bubbleWidth = buttonParams?.width?.takeIf { it > 0 } ?: dp(44)
+        val bubbleCenterX = bubbleX + (bubbleWidth / 2)
+        val maxX = (screenWidth - panelWidth - horizontalMargin).coerceAtLeast(horizontalMargin)
+        val panelX = if (bubbleCenterX >= screenWidth / 2) {
+            (bubbleX + bubbleWidth - panelWidth).coerceIn(horizontalMargin, maxX)
+        } else {
+            bubbleX.coerceIn(horizontalMargin, maxX)
+        }
+        val measuredHeight = resolvePanelHeight(contentView, panelWidth, panelHeight)
+        val anchoredY = (buttonParams?.y ?: dp(190)) - bubbleOffset
+        val maxY = (screenHeight - measuredHeight - verticalMargin).coerceAtLeast(verticalMargin)
+        val panelY = anchoredY.coerceIn(verticalMargin, maxY)
+
+        return WindowManager.LayoutParams(
+            panelWidth,
+            panelHeight,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(16)
-            y = dp(190)
+            x = panelX
+            y = panelY
         }
+    }
 
-        progressStatusView = statusView
-        progressIndicatorView = indicator
-        candidatePanelView = panel
-        windowManager?.addView(panel, params)
-        startProgressIndicatorAnimation(indicator)
+    private fun resolvePanelHeight(
+        contentView: View,
+        panelWidth: Int,
+        panelHeight: Int
+    ): Int {
+        if (panelHeight > 0) return panelHeight
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(panelWidth, View.MeasureSpec.EXACTLY)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        contentView.measure(widthSpec, heightSpec)
+        return contentView.measuredHeight
+    }
+
+    private fun panelWidthDp(desiredDp: Int): Int {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val horizontalMargin = dp(16)
+        return minOf(dp(desiredDp), screenWidth - horizontalMargin * 2)
     }
 
     private fun updateFloatingButtonLoading(isLoading: Boolean) {

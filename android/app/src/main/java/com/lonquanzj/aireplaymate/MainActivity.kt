@@ -45,6 +45,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -81,8 +83,6 @@ import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
 import com.lonquanzj.aireplaymate.demo.DemoMessage
-import com.lonquanzj.aireplaymate.demo.DemoScenario
-import com.lonquanzj.aireplaymate.demo.demoScenarios
 import com.lonquanzj.aireplaymate.llm.LlmDebugState
 import com.lonquanzj.aireplaymate.llm.LlmDebugStore
 import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
@@ -123,6 +123,13 @@ private data class PermissionSnapshot(
     val accessibilityEnabled: Boolean,
     val overlayEnabled: Boolean
 )
+
+private enum class HomeTab(val label: String) {
+    MAIN("主界面"),
+    SETTINGS("设置"),
+    PERMISSIONS("权限"),
+    DEBUG("调试")
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -171,10 +178,9 @@ private fun MainScreen(
     loadAppSettings: () -> AppSettings,
     saveAppSettings: (AppSettings) -> Unit
 ) {
-    val scenarios = remember { demoScenarios() }
     val sessionManager = remember { DemoSessionManager() }
     val sessionState by sessionManager.state.collectAsState()
-    var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
+    var selectedTab by remember { mutableStateOf(HomeTab.MAIN) }
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
     var testingLlm by remember { mutableStateOf(false) }
@@ -195,6 +201,9 @@ private fun MainScreen(
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
+    val mainTabScrollState = rememberScrollState()
+    val permissionsTabScrollState = rememberScrollState()
+    val debugTabScrollState = rememberScrollState()
     val mediaProjectionManager = remember(context) {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
     }
@@ -216,10 +225,6 @@ private fun MainScreen(
         ).show()
     }
 
-    val selectedScenario = remember(selectedScenarioId, scenarios) {
-        scenarios.first { it.id == selectedScenarioId }
-    }
-
     DisposableEffect(lifecycleOwner, loadPermissionSnapshot) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -232,13 +237,9 @@ private fun MainScreen(
         }
     }
 
-    LaunchedEffect(selectedScenarioId) {
-        sessionManager.prepareScenario(selectedScenario)
-    }
-
     LaunchedEffect(overlayTrigger?.id) {
         val request = overlayTrigger ?: return@LaunchedEffect
-        sessionManager.runDemo(selectedScenario, request.debugState, replyStyleProfile.asDefaultReply())
+        sessionManager.run(debugState = request.debugState, styleProfile = replyStyleProfile.asDefaultReply())
         OverlayTriggerStore.consume(request.id)
     }
 
@@ -257,7 +258,7 @@ private fun MainScreen(
     if (sessionState.showCandidateSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         BackHandler {
-            sessionManager.cancelCandidateSelection("用户关闭候选面板，本次演示已取消")
+            sessionManager.cancelCandidateSelection("用户关闭候选面板，本次生成已取消")
         }
 
         ModalBottomSheet(
@@ -323,7 +324,7 @@ private fun MainScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            sessionManager.regenerateCandidates(selectedScenario, replyStyleProfile.asDefaultReply())
+                            sessionManager.regenerateCandidates(replyStyleProfile.asDefaultReply())
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(18.dp)
@@ -333,7 +334,7 @@ private fun MainScreen(
 
                     Button(
                         onClick = {
-                            sessionManager.cancelCandidateSelection("本次演示已结束，可重新触发")
+                            sessionManager.cancelCandidateSelection("本次生成已结束，可重新触发")
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(18.dp)
@@ -367,9 +368,9 @@ private fun MainScreen(
                 TopAppBar(
                     title = {
                         Column {
-                            Text("AiReplayMate Demo")
+                            Text("AiReplayMate")
                             Text(
-                                text = "把产品主链路先演示出来",
+                                text = "基于当前微信上下文生成候选回复",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -382,138 +383,191 @@ private fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                HeroCard(
-                    currentStage = sessionState.currentState,
-                    stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
-                    isRunning = sessionState.isRunning,
-                    selectedScenario = selectedScenario,
-                    onRunDemo = {
-                        if (!sessionState.isRunning) {
-                            scope.launch {
-                                sessionManager.runDemo(selectedScenario, debugState, replyStyleProfile.asDefaultReply())
-                            }
-                        }
-                    },
-                    onReset = {
-                        if (!sessionState.isRunning) {
-                            sessionManager.reset(selectedScenario)
-                        }
-                    }
-                )
-
-                PermissionStatusSection(
-                    permissionSnapshot = permissionSnapshot,
-                    overlayServiceState = overlayServiceState,
-                    onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                    onOpenOverlaySettings = onOpenOverlaySettings,
-                    onStartOverlayService = onStartOverlayService,
-                    onStopOverlayService = onStopOverlayService
-                )
-
-                OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
-
-                DiagnosticLogSection(logState = diagnosticLogState)
-
-                LlmSettingsSection(
-                    settings = appSettings,
-                    validation = AppSettingsValidator.validate(appSettings),
-                    isTesting = testingLlm,
-                    onSettingsChange = {
-                        appSettings = it
-                        saveAppSettings(it)
-                    },
-                    onTestConnection = {
-                        scope.launch {
-                            testingLlm = true
-                            testLlmConnection(appSettings)
-                            testingLlm = false
-                        }
-                    }
-                )
-
-                ReplyStyleSection(
-                    profile = replyStyleProfile,
-                    onProfileChange = { nextProfile ->
-                        replyStyleProfile = nextProfile
-                        ReplyStyleSettingsStore.save(context, nextProfile)
-                    }
-                )
-
-                LlmDiagnosticsSection(debugState = llmDebugState)
-
-                RealAccessibilitySection(
-                    debugState = debugState,
-                    ocrDebugState = ocrDebugState
-                )
-
-                OcrFallbackSection(
-                    debugState = ocrDebugState,
-                    capturePermissionState = ocrCapturePermissionState,
-                    screenCaptureState = ocrScreenCaptureState,
-                    isTestingScreenCapture = testingScreenCapture,
-                    isTestingOcrRecognition = testingOcrRecognition,
-                    onRequestCapturePermission = {
-                        screenCapturePermissionLauncher.launch(
-                            mediaProjectionManager.createScreenCaptureIntent()
+                TabRow(selectedTabIndex = selectedTab.ordinal) {
+                    HomeTab.entries.forEach { tab ->
+                        Tab(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            text = { Text(tab.label) }
                         )
-                    },
-                    onTestScreenCapture = {
-                        scope.launch {
-                            testingScreenCapture = true
-                            val result = AndroidScreenCaptureProvider(context.applicationContext)
-                                .captureOnce(ocrCapturePermissionState)
-                            testingScreenCapture = false
-                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onTestOcrRecognition = {
-                        scope.launch {
-                            testingOcrRecognition = true
-                            val result = MlKitChineseOcrEngine(context.applicationContext)
-                                .recognizeChatMessages(
-                                    targetApp = "wechat",
-                                    reason = "首页手动测试 OCR 识别"
-                                )
-                            testingOcrRecognition = false
-                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                when (selectedTab) {
+                    HomeTab.MAIN -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(mainTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            HeroCard(
+                                currentStage = sessionState.currentState,
+                                stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
+                                isRunning = sessionState.isRunning,
+                                conversationTitle = debugState.conversationTitle,
+                                serviceConnected = debugState.serviceConnected,
+                                onRun = {
+                                    if (!sessionState.isRunning) {
+                                        scope.launch {
+                                            sessionManager.run(debugState, replyStyleProfile.asDefaultReply())
+                                        }
+                                    }
+                                },
+                                onReset = {
+                                    if (!sessionState.isRunning) {
+                                        sessionManager.reset()
+                                    }
+                                }
+                            )
+
+                            SessionStageSection(
+                                currentStage = sessionState.currentState,
+                                progressStage = sessionState.progressState
+                            )
+
+                            ConversationPreviewSection(
+                                conversationTitle = debugState.conversationTitle,
+                                messages = sessionState.extractedMessages
+                            )
+
+                            ReplyStyleSection(
+                                profile = replyStyleProfile,
+                                onProfileChange = { nextProfile ->
+                                    replyStyleProfile = nextProfile
+                                    ReplyStyleSettingsStore.save(context, nextProfile)
+                                }
+                            )
+
+                            ReplyDraftSection(
+                                replyDraft = sessionState.replyDraft,
+                                onReplyDraftChange = sessionManager::updateReplyDraft,
+                                onTryRealAutofill = {
+                                    val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
+                                    sessionManager.noteRealAutofillResult(result.message)
+                                },
+                                canTryRealAutofill = sessionState.replyDraft.isNotBlank()
+                            )
+
+                            ActivityLogSection(entries = sessionState.activityLog)
+
+                            Spacer(modifier = Modifier.height(24.dp))
                         }
                     }
-                )
 
-                ScenarioSection(
-                    scenarios = scenarios,
-                    selectedScenarioId = selectedScenarioId,
-                    enabled = !sessionState.isRunning,
-                    onSelectScenario = { selectedScenarioId = it }
-                )
+                    HomeTab.SETTINGS -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(permissionsTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            LlmSettingsSection(
+                                settings = appSettings,
+                                validation = AppSettingsValidator.validate(appSettings),
+                                isTesting = testingLlm,
+                                onSettingsChange = {
+                                    appSettings = it
+                                    saveAppSettings(it)
+                                },
+                                onTestConnection = {
+                                    scope.launch {
+                                        testingLlm = true
+                                        testLlmConnection(appSettings)
+                                        testingLlm = false
+                                    }
+                                }
+                            )
 
-                SessionStageSection(
-                    currentStage = sessionState.currentState,
-                    progressStage = sessionState.progressState
-                )
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
 
-                ConversationPreviewSection(
-                    scenario = selectedScenario,
-                    messages = sessionState.extractedMessages
-                )
+                    HomeTab.PERMISSIONS -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(permissionsTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            PermissionStatusSection(
+                                permissionSnapshot = permissionSnapshot,
+                                overlayServiceState = overlayServiceState,
+                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                onOpenOverlaySettings = onOpenOverlaySettings,
+                                onStartOverlayService = onStartOverlayService,
+                                onStopOverlayService = onStopOverlayService
+                            )
 
-                ReplyDraftSection(
-                    replyDraft = sessionState.replyDraft,
-                    onReplyDraftChange = sessionManager::updateReplyDraft,
-                    onTryRealAutofill = {
-                        val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
-                        sessionManager.noteRealAutofillResult(result.message)
-                    },
-                    canTryRealAutofill = sessionState.replyDraft.isNotBlank()
-                )
+                            OcrFallbackSection(
+                                debugState = ocrDebugState,
+                                capturePermissionState = ocrCapturePermissionState,
+                                screenCaptureState = ocrScreenCaptureState,
+                                isTestingScreenCapture = testingScreenCapture,
+                                isTestingOcrRecognition = testingOcrRecognition,
+                                onRequestCapturePermission = {
+                                    screenCapturePermissionLauncher.launch(
+                                        mediaProjectionManager.createScreenCaptureIntent()
+                                    )
+                                },
+                                onTestScreenCapture = {
+                                    scope.launch {
+                                        testingScreenCapture = true
+                                        val result = AndroidScreenCaptureProvider(context.applicationContext)
+                                            .captureOnce(ocrCapturePermissionState)
+                                        testingScreenCapture = false
+                                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onTestOcrRecognition = {
+                                    scope.launch {
+                                        testingOcrRecognition = true
+                                        val result = MlKitChineseOcrEngine(context.applicationContext)
+                                            .recognizeChatMessages(
+                                                targetApp = "wechat",
+                                                reason = "首页手动测试 OCR 识别"
+                                            )
+                                        testingOcrRecognition = false
+                                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
 
-                ActivityLogSection(entries = sessionState.activityLog)
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                    HomeTab.DEBUG -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(debugTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
+
+                            LlmDiagnosticsSection(debugState = llmDebugState)
+
+                            RealAccessibilitySection(
+                                debugState = debugState,
+                                ocrDebugState = ocrDebugState
+                            )
+
+                            DiagnosticLogSection(logState = diagnosticLogState)
+
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -524,8 +578,9 @@ private fun HeroCard(
     currentStage: SessionState,
     stageDetail: String,
     isRunning: Boolean,
-    selectedScenario: DemoScenario,
-    onRunDemo: () -> Unit,
+    conversationTitle: String?,
+    serviceConnected: Boolean,
+    onRun: () -> Unit,
     onReset: () -> Unit
 ) {
     Card(
@@ -542,7 +597,7 @@ private fun HeroCard(
                 color = Color(0x33FFFFFF)
             ) {
                 Text(
-                    text = "Demo Build",
+                    text = "正式版",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = Color.White,
                     style = MaterialTheme.typography.labelLarge
@@ -550,14 +605,18 @@ private fun HeroCard(
             }
 
             Text(
-                text = selectedScenario.title,
+                text = conversationTitle ?: "准备生成微信回复",
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color.White,
                 fontWeight = FontWeight.Bold
             )
 
             Text(
-                text = selectedScenario.note,
+                text = if (serviceConnected) {
+                    "基于当前聊天上下文生成候选回复，用户确认后才会填入，不会自动发送。"
+                } else {
+                    "进入微信单聊页并保持无障碍服务可用后，即可基于真实上下文生成候选回复。"
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color(0xFFDCEEEB)
             )
@@ -586,7 +645,7 @@ private fun HeroCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
-                    onClick = onRunDemo,
+                    onClick = onRun,
                     enabled = !isRunning,
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -597,9 +656,9 @@ private fun HeroCard(
                 ) {
                     Text(
                         if (currentStage == SessionState.IDLE) {
-                            "运行 Demo"
+                            "开始生成"
                         } else {
-                            "再次演示"
+                            "重新生成"
                         }
                     )
                 }
@@ -641,9 +700,9 @@ private fun PermissionStatusSection(
                 title = "无障碍服务",
                 enabled = permissionSnapshot.accessibilityEnabled,
                 description = if (permissionSnapshot.accessibilityEnabled) {
-                    "已开启，可继续演示真实入口。"
+                    "已开启，可从真实微信聊天页触发生成。"
                 } else {
-                    "未开启时仍可演示流程，但无法接真实事件。"
+                    "未开启时无法读取聊天上下文，也不能触发真实链路。"
                 },
                 buttonText = "去开启",
                 onClick = onOpenAccessibilitySettings,
@@ -1659,98 +1718,6 @@ private fun StatusRow(
 }
 
 @Composable
-private fun ScenarioSection(
-    scenarios: List<DemoScenario>,
-    selectedScenarioId: String,
-    enabled: Boolean,
-    onSelectScenario: (String) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "演示场景",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        scenarios.forEach { scenario ->
-            val selected = scenario.id == selectedScenarioId
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .clickable(enabled = enabled) { onSelectScenario(scenario.id) },
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (selected) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    }
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(10.dp)
-                            .height(56.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(
-                                if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.secondary
-                                }
-                            )
-                    )
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = scenario.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = scenario.subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Surface(
-                        shape = CircleShape,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        }
-                    ) {
-                        Text(
-                            text = if (selected) "当前" else "切换",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun SessionStageSection(
     currentStage: SessionState,
     progressStage: SessionState
@@ -1836,7 +1803,7 @@ private fun SessionStageSection(
 
 @Composable
 private fun ConversationPreviewSection(
-    scenario: DemoScenario,
+    conversationTitle: String?,
     messages: List<DemoMessage>
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1855,18 +1822,30 @@ private fun ConversationPreviewSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = scenario.title,
+                    text = conversationTitle ?: "当前聊天上下文",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "当前 Demo 会把这段上下文送去生成 3 条候选回复。",
+                    text = if (messages.isEmpty()) {
+                        "进入微信单聊页后，这里会展示最近提取到的聊天上下文。"
+                    } else {
+                        "当前会把这段上下文送去生成 3 条候选回复。"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                messages.forEach { message ->
-                    MessageBubble(message = message)
+                if (messages.isEmpty()) {
+                    Text(
+                        text = "还没有提取到聊天消息。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    messages.forEach { message ->
+                        MessageBubble(message = message)
+                    }
                 }
             }
         }
@@ -1960,7 +1939,7 @@ private fun ReplyDraftSection(
 private fun ActivityLogSection(entries: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            text = "演示日志",
+            text = "运行日志",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold
         )
@@ -1975,7 +1954,7 @@ private fun ActivityLogSection(entries: List<String>) {
             ) {
                 if (entries.isEmpty()) {
                     Text(
-                        text = "还没有触发 Demo。点击上面的按钮后，这里会按阶段记录主链路进度。",
+                        text = "还没有开始生成。点击上面的按钮后，这里会按阶段记录主链路进度。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

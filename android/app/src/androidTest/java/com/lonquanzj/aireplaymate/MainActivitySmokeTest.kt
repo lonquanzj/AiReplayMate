@@ -14,7 +14,7 @@ class MainActivitySmokeTest {
 
     @Test
     fun mainScreen_renders_key_entry_points() {
-        composeRule.onNodeWithText("AiReplayMate Demo").fetchSemanticsNode()
+        composeRule.onNodeWithText("AiReplayMate").fetchSemanticsNode()
         composeRule.onNodeWithText("权限状态").fetchSemanticsNode()
         composeRule.onNodeWithText("测试连接").fetchSemanticsNode()
         composeRule.onNodeWithText("LLM 回复风格").fetchSemanticsNode()
