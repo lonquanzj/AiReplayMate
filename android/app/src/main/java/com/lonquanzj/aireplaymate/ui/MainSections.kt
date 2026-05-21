@@ -89,6 +89,7 @@ import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
 import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
+import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
@@ -236,12 +237,29 @@ internal fun LlmTabContent(
 
 @Composable
 internal fun StyleTabContent(
+    appSettings: AppSettings,
     replyStyleProfile: ReplyStyleProfile,
     replyStyleCatalog: ReplyStyleCatalogState,
     onProfileChange: (ReplyStyleProfile) -> Unit,
     onCatalogChange: (ReplyStyleCatalogState) -> Unit,
     onResetBuiltinCatalog: () -> Unit
 ) {
+    val debugState by AccessibilityDebugStore.state.collectAsState()
+    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
+    val promptPreviewContext = remember(
+        previewContextState.messages,
+        debugState.extractedMessages
+    ) {
+        when {
+            previewContextState.messages.isNotEmpty() -> realPromptPreviewContext(previewContextState.messages)
+            else -> DefaultContextBuilder.build(
+                accessibilityMessages = debugState.extractedMessages,
+                targetApp = "wechat",
+                conversationType = ConversationType.SINGLE_CHAT
+            )
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -250,6 +268,8 @@ internal fun StyleTabContent(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ReplyStyleSection(
+            appSettings = appSettings,
+            promptPreviewContext = promptPreviewContext,
             profile = replyStyleProfile,
             catalog = replyStyleCatalog,
             onProfileChange = onProfileChange,
@@ -892,6 +912,8 @@ private fun llmSettingsHint(
 
 @Composable
 private fun ReplyStyleSection(
+    appSettings: AppSettings,
+    promptPreviewContext: ChatContext,
     profile: ReplyStyleProfile,
     catalog: ReplyStyleCatalogState,
     onProfileChange: (ReplyStyleProfile) -> Unit,
@@ -991,8 +1013,8 @@ private fun ReplyStyleSection(
                     onEditClick = { isPersonaEditMode = !isPersonaEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = emptyPromptPreviewContext(),
-                            settings = AppSettings(candidateCount = 3),
+                            context = promptPreviewContext,
+                            settings = appSettings,
                             styleProfile = profile.asDefaultReply().withResolvedCatalog(catalog)
                         )
                     }
@@ -1024,8 +1046,8 @@ private fun ReplyStyleSection(
                     onEditClick = { isPlaybookEditMode = !isPlaybookEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = emptyPromptPreviewContext(),
-                            settings = AppSettings(candidateCount = 3),
+                            context = promptPreviewContext,
+                            settings = appSettings,
                             styleProfile = profile.copy(mode = ReplyStyleMode.PLAYBOOK)
                                 .withResolvedCatalog(catalog)
                         )
@@ -1058,8 +1080,8 @@ private fun ReplyStyleSection(
                     onEditClick = { isPolishEditMode = !isPolishEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = emptyPromptPreviewContext(),
-                            settings = AppSettings(candidateCount = 3),
+                            context = promptPreviewContext,
+                            settings = appSettings,
                             styleProfile = profile.copy(mode = ReplyStyleMode.POLISH)
                                 .withResolvedCatalog(catalog)
                         )
@@ -1146,9 +1168,9 @@ private fun StyleSmallActionButton(
     }
 }
 
-private fun emptyPromptPreviewContext(): ChatContext {
+private fun realPromptPreviewContext(messages: List<ChatMessage>): ChatContext {
     return ChatContext(
-        messages = emptyList(),
+        messages = messages,
         targetApp = "wechat",
         conversationType = ConversationType.SINGLE_CHAT,
         collectedAt = System.currentTimeMillis()

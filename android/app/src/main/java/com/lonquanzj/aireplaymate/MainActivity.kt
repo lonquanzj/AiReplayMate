@@ -423,6 +423,7 @@ private fun MainScreen(
 
                         HomeTab.STYLE -> {
                             StyleTabContent(
+                                appSettings = appSettings,
                                 replyStyleProfile = replyStyleProfile,
                                 replyStyleCatalog = replyStyleCatalog,
                                 onProfileChange = { nextProfile ->
