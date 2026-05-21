@@ -242,23 +242,6 @@ internal fun StyleTabContent(
     onCatalogChange: (ReplyStyleCatalogState) -> Unit,
     onResetBuiltinCatalog: () -> Unit
 ) {
-    val debugState by AccessibilityDebugStore.state.collectAsState()
-    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
-    val sessionManager = remember { DemoSessionManager() }
-    val sessionState by sessionManager.state.collectAsState()
-
-    val previewMessages = remember(
-        sessionState.extractedMessages,
-        previewContextState.messages,
-        debugState.extractedMessages
-    ) {
-        when {
-            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
-            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
-            else -> debugState.extractedMessages.toPreviewMessages()
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -272,7 +255,6 @@ internal fun StyleTabContent(
             onProfileChange = onProfileChange,
             onCatalogChange = onCatalogChange,
             onResetBuiltinCatalog = onResetBuiltinCatalog,
-            previewMessages = previewMessages
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -914,8 +896,7 @@ private fun ReplyStyleSection(
     catalog: ReplyStyleCatalogState,
     onProfileChange: (ReplyStyleProfile) -> Unit,
     onCatalogChange: (ReplyStyleCatalogState) -> Unit,
-    onResetBuiltinCatalog: () -> Unit,
-    previewMessages: List<DemoMessage>
+    onResetBuiltinCatalog: () -> Unit
 ) {
     var previewRequest by remember { mutableStateOf<LlmRequest?>(null) }
     var editingItem by remember { mutableStateOf<StyleEditTarget?>(null) }
@@ -1010,7 +991,7 @@ private fun ReplyStyleSection(
                     onEditClick = { isPersonaEditMode = !isPersonaEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = previewMessages.toPromptPreviewContext(),
+                            context = emptyPromptPreviewContext(),
                             settings = AppSettings(candidateCount = 3),
                             styleProfile = profile.asDefaultReply().withResolvedCatalog(catalog)
                         )
@@ -1043,7 +1024,7 @@ private fun ReplyStyleSection(
                     onEditClick = { isPlaybookEditMode = !isPlaybookEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = previewMessages.toPromptPreviewContext(),
+                            context = emptyPromptPreviewContext(),
                             settings = AppSettings(candidateCount = 3),
                             styleProfile = profile.copy(mode = ReplyStyleMode.PLAYBOOK)
                                 .withResolvedCatalog(catalog)
@@ -1077,11 +1058,10 @@ private fun ReplyStyleSection(
                     onEditClick = { isPolishEditMode = !isPolishEditMode },
                     onPreviewClick = {
                         previewRequest = DefaultPromptBuilder.build(
-                            context = previewMessages.toPromptPreviewContext(),
+                            context = emptyPromptPreviewContext(),
                             settings = AppSettings(candidateCount = 3),
                             styleProfile = profile.copy(mode = ReplyStyleMode.POLISH)
-                                .withResolvedCatalog(catalog),
-                            draftText = "今晚有空的话，我想和你聊会儿。"
+                                .withResolvedCatalog(catalog)
                         )
                     }
                 )
@@ -1164,6 +1144,15 @@ private fun StyleSmallActionButton(
             maxLines = 1
         )
     }
+}
+
+private fun emptyPromptPreviewContext(): ChatContext {
+    return ChatContext(
+        messages = emptyList(),
+        targetApp = "wechat",
+        conversationType = ConversationType.SINGLE_CHAT,
+        collectedAt = System.currentTimeMillis()
+    )
 }
 
 private sealed class StyleEditTarget {
