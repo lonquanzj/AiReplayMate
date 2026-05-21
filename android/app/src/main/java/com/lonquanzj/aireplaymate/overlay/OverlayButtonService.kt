@@ -364,11 +364,10 @@ class OverlayButtonService : Service() {
         }
 
         content.addView(
-            panelHeader("选择 AI 回复风格") {
+            panelHeader("选择回复风格") {
                 removeCandidatePanel()
             }
         )
-        content.addView(menuHint("短按气泡用默认风格；这里选择后会记住，并立即生成候选。"))
 
         content.addView(menuSectionLabel("角色"))
         addCompactGrid(
@@ -382,7 +381,11 @@ class OverlayButtonService : Service() {
                 persona = ReplyStyleCatalog.personaFromConfig(personaConfig),
                 personaConfig = personaConfig
             )
-            menuButton(personaConfig.label, profile)
+            menuButton(
+                personaConfig.label,
+                profile,
+                isSelected = personaConfig.id == current.personaConfig.id
+            )
         }
 
         content.addView(menuSectionLabel("话术宝典"))
@@ -503,16 +506,18 @@ class OverlayButtonService : Service() {
         label: String,
         profile: ReplyStyleProfile,
         persistAsDefault: Boolean = true,
-        requiresDraft: Boolean = false
+        requiresDraft: Boolean = false,
+        isSelected: Boolean = false
     ): TextView {
         return TextView(this).apply {
             text = label
             textSize = 12f
-            setTextColor(0xFF3F2B78.toInt())
+            setTextColor(if (isSelected) Color.WHITE else 0xFF3F2B78.toInt())
+            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             maxLines = 2
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(8), dp(4), dp(8))
-            background = softPurpleCardBackground()
+            background = if (isSelected) selectedMenuButtonBackground() else softPurpleCardBackground()
             setOnClickListener {
                 val draftText = if (requiresDraft) {
                     val readResult = AccessibilityActionBridge.tryReadInputDraft()
@@ -874,6 +879,17 @@ class OverlayButtonService : Service() {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(16).toFloat()
             setStroke(dp(1), 0x26A07CFF)
+        }
+    }
+
+    private fun selectedMenuButtonBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF7A57E8.toInt(), 0xFF5B3DC8.toInt())
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), 0x667A57E8)
         }
     }
 
