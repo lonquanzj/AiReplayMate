@@ -52,6 +52,8 @@
 
 ## 4. 构建方式
 
+构建约束：`android/` 是唯一 Gradle 工程根目录。仓库根目录的 `gradlew` 仅用于转发到 `android/gradlew`。
+
 ### Android Studio
 
 1. 打开 `android/` 目录作为工程根目录
@@ -65,6 +67,14 @@
 ```bash
 ./gradlew :app:assembleDebug
 ```
+
+如果在仓库根目录执行，请使用：
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+上述命令会被转发到 `android/gradlew`，用于保证入口一致性。
 
 如果设备已连接，也可以安装：
 

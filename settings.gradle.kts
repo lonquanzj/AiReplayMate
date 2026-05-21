@@ -15,4 +15,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "AiReplayMate"
+
 include(":app")
+project(":app").projectDir = file("android/app")

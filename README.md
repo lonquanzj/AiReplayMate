@@ -157,14 +157,13 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 ### 构建
 
+项目使用标准 Gradle 多项目结构，根目录即为构建入口。
+
 在仓库根目录执行：
 
 ```bash
-cd android
-./gradlew assembleDebug
+./gradlew :app:assembleDebug
 ```
-
-请勿使用系统 `gradle` 命令，以免命中版本不兼容（当前分支要求 Gradle 8.9+）。
 
 ### 安装与验证建议
 
