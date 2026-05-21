@@ -33,6 +33,7 @@ import com.lonquanzj.aireplaymate.prompt.ReplyPersona
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
+import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
 import com.lonquanzj.aireplaymate.session.RealReplySessionPhase
 import com.lonquanzj.aireplaymate.session.RealReplySessionRunner
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
@@ -277,6 +278,10 @@ class OverlayButtonService : Service() {
             Toast.makeText(this, "候选回复已生成", Toast.LENGTH_SHORT).show()
         }
         val candidates = sessionResult.candidates.toOverlayCandidates()
+        ReplyContextPreviewStore.update(
+            conversationTitle = debugState.conversationTitle,
+            messages = sessionResult.context.messages
+        )
         OverlayDiagnosticsStore.onCandidates(
             count = candidates.size,
             usedLocalFallback = sessionResult.usedLocalFallback,

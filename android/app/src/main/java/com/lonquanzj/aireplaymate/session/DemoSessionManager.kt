@@ -105,6 +105,10 @@ class DemoSessionManager {
                 progressState = SessionState.BUILDING_CONTEXT
             )
         }
+        ReplyContextPreviewStore.update(
+            conversationTitle = debugState.conversationTitle,
+            messages = rawMessages
+        )
 
         var context = DefaultContextBuilder.build(
             accessibilityMessages = rawMessages,
@@ -156,6 +160,10 @@ class DemoSessionManager {
                 progressState = SessionState.REQUESTING_LLM
             )
         }
+        ReplyContextPreviewStore.update(
+            conversationTitle = debugState.conversationTitle,
+            messages = context.messages
+        )
 
         appendLog("正在根据最近一条消息生成回复候选")
         delay(900)
@@ -237,6 +245,7 @@ class DemoSessionManager {
     }
 
     fun reset() {
+        ReplyContextPreviewStore.clear()
         _state.value = SessionUiState(
             activityLog = listOf("已重置当前状态")
         )

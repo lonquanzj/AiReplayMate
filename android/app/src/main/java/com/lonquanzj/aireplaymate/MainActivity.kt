@@ -78,6 +78,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
+import com.lonquanzj.aireplaymate.accessibility.ChatMessage
+import com.lonquanzj.aireplaymate.accessibility.ChatRole
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
@@ -112,6 +114,7 @@ import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
+import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
 import com.lonquanzj.aireplaymate.session.SessionState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
@@ -199,6 +202,7 @@ private fun MainScreen(
     val overlayServiceState by OverlayServiceStateStore.state.collectAsState()
     val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
     val overlayTrigger by OverlayTriggerStore.request.collectAsState()
+    val previewContextState by ReplyContextPreviewStore.state.collectAsState()
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
     val mainTabScrollState = rememberScrollState()
@@ -224,6 +228,19 @@ private fun MainScreen(
             Toast.LENGTH_SHORT
         ).show()
     }
+
+    val previewMessages = remember(
+        sessionState.extractedMessages,
+        previewContextState.messages,
+        debugState.extractedMessages
+    ) {
+        when {
+            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
+            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
+            else -> debugState.extractedMessages.toPreviewMessages()
+        }
+    }
+    val previewConversationTitle = previewContextState.conversationTitle ?: debugState.conversationTitle
 
     DisposableEffect(lifecycleOwner, loadPermissionSnapshot) {
         val observer = LifecycleEventObserver { _, event ->
@@ -430,8 +447,8 @@ private fun MainScreen(
                             )
 
                             ConversationPreviewSection(
-                                conversationTitle = debugState.conversationTitle,
-                                messages = sessionState.extractedMessages
+                                conversationTitle = previewConversationTitle,
+                                messages = previewMessages
                             )
 
                             ReplyStyleSection(
@@ -2173,6 +2190,20 @@ private fun buildOverlayDebugSnapshot(debugState: OverlayDiagnosticsState): Stri
         } else {
             debugState.steps.forEach(::appendLine)
         }
+    }
+}
+
+private fun List<ChatMessage>.toPreviewMessages(): List<DemoMessage> {
+    return takeLast(8).map { message ->
+        DemoMessage(
+            author = when (message.role) {
+                ChatRole.ME -> DemoAuthor.ME
+                ChatRole.FRIEND -> DemoAuthor.FRIEND
+                ChatRole.SYSTEM -> DemoAuthor.SYSTEM
+                ChatRole.UNKNOWN -> DemoAuthor.FRIEND
+            },
+            content = message.content
+        )
     }
 }
 
