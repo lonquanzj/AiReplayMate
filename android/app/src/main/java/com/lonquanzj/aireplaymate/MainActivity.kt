@@ -399,9 +399,9 @@ private fun MainScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFF3E7D3),
-                        Color(0xFFF7F1E6),
-                        Color(0xFFFFFCF6)
+                        Color(0xFFF7F3FF),
+                        Color(0xFFF1ECFF),
+                        Color(0xFFFFFCFF)
                     )
                 )
             )
@@ -716,7 +716,7 @@ private fun DailyHomeHeader(
 
     Card(
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF12332F)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -726,13 +726,13 @@ private fun DailyHomeHeader(
             Text(
                 text = "日常入口",
                 style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = "先确认权限、气泡和模型配置，再去微信单聊里点气泡生成候选。",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFDCEEEB)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -757,7 +757,7 @@ private fun DailyHomeHeader(
             Text(
                 text = "最近诊断：${latestLogTitle ?: "暂无"}",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFFEAF7F4)
+                color = MaterialTheme.colorScheme.primary
             )
         }
     }
@@ -772,7 +772,7 @@ private fun DailyStatusItem(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        color = Color.White.copy(alpha = 0.12f)
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
@@ -781,12 +781,12 @@ private fun DailyStatusItem(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFBFE1DC)
+                color = MaterialTheme.colorScheme.secondary
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.labelLarge,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -805,7 +805,7 @@ private fun HeroCard(
 ) {
     Card(
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF12332F)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -814,12 +814,12 @@ private fun HeroCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color(0x33FFFFFF)
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
             ) {
                 Text(
                     text = "正式版",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -827,7 +827,7 @@ private fun HeroCard(
             Text(
                 text = conversationTitle ?: "准备生成微信回复",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.Bold
             )
 
@@ -838,26 +838,26 @@ private fun HeroCard(
                     "进入微信单聊页并保持无障碍服务可用后，即可基于真实上下文生成候选回复。"
                 },
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color(0xFFDCEEEB)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             if (isRunning) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFFF5C87A),
-                    trackColor = Color(0x33FFFFFF)
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant
                 )
             }
 
             Text(
                 text = "当前阶段：${currentStage.title}",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Text(
                 text = stageDetail,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFBFE4DE)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Row(
@@ -869,8 +869,8 @@ private fun HeroCard(
                     enabled = !isRunning,
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFF2B35D),
-                        contentColor = Color(0xFF2D1700)
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -888,9 +888,6 @@ private fun HeroCard(
                     enabled = !isRunning,
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color.White
-                    )
                 ) {
                     Text("清空状态")
                 }
@@ -2511,7 +2508,7 @@ private fun ConversationPreviewSection(
 
         Card(
             shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F2E8))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
         ) {
             Column(
                 modifier = Modifier.padding(18.dp),
@@ -2552,11 +2549,11 @@ private fun ConversationPreviewSection(
 private fun MessageBubble(message: DemoMessage) {
     val isMine = message.author == DemoAuthor.ME
     val bubbleColor = when (message.author) {
-        DemoAuthor.ME -> Color(0xFFD2F3E5)
-        DemoAuthor.FRIEND -> Color.White
-        DemoAuthor.SYSTEM -> Color(0xFFE9E2D7)
+        DemoAuthor.ME -> MaterialTheme.colorScheme.secondaryContainer
+        DemoAuthor.FRIEND -> MaterialTheme.colorScheme.surface
+        DemoAuthor.SYSTEM -> MaterialTheme.colorScheme.primaryContainer
     }
-    val textColor = Color(0xFF1E1B16)
+    val textColor = MaterialTheme.colorScheme.onSurface
 
     Row(
         modifier = Modifier.fillMaxWidth(),
