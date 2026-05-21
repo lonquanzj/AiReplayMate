@@ -460,6 +460,11 @@ private fun MainScreen(
                                 onStopOverlayService = onStopOverlayService
                             )
 
+                            ConversationPreviewSection(
+                                conversationTitle = previewConversationTitle,
+                                messages = previewMessages
+                            )
+
                             DiagnosticLogSection(logState = diagnosticLogState)
 
                             AboutEntry(onClick = { showAboutDialog = true })
@@ -566,11 +571,6 @@ private fun MainScreen(
                             SessionStageSection(
                                 currentStage = sessionState.currentState,
                                 progressStage = sessionState.progressState
-                            )
-
-                            ConversationPreviewSection(
-                                conversationTitle = previewConversationTitle,
-                                messages = previewMessages
                             )
 
                             ReplyDraftSection(
