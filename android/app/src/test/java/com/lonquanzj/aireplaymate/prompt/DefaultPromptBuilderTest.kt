@@ -10,69 +10,85 @@ import org.junit.Test
 
 class DefaultPromptBuilderTest {
     @Test
-    fun build_forQuickReply_includes_latest_friend_message_custom_prompt_and_clamps_values() {
+    fun build_forQuickReply_includes_persona_config_and_fixed_protocol() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(
                 listOf(
                     chatMessage(id = "m1", role = ChatRole.ME, content = "在忙"),
-                    chatMessage(id = "m2", role = ChatRole.FRIEND, content = "今晚有空吗？"),
-                    chatMessage(id = "m3", role = ChatRole.ME, content = "我先看下")
+                    chatMessage(id = "m2", role = ChatRole.FRIEND, content = "今晚有空吗？")
                 )
             ),
-            settings = AppSettings(
-                apiKey = "sk-test",
-                temperature = 5f,
-                maxTokens = 20,
-                candidateCount = 0,
-                customSystemPrompt = "少用感叹号"
-            ),
+            settings = AppSettings(temperature = 5f, maxTokens = 20, candidateCount = 0),
             styleProfile = ReplyStyleProfile(
                 mode = ReplyStyleMode.QUICK_REPLY,
-                persona = ReplyPersona.WARM_GENTLE
+                personaConfig = ReplyPersonaConfig(
+                    id = "custom_persona",
+                    label = "冷幽默",
+                    identityPrompt = "你是一个冷幽默但不冒犯的人。",
+                    promptGuide = "回复短一点，轻轻调侃。",
+                    isBuiltin = false
+                )
             )
         )
 
-        assertTrue(request.systemPrompt.contains("用户补充偏好：少用感叹号"))
-        assertTrue(request.userPrompt.contains("最近一条对方消息："))
+        assertTrue(request.systemPrompt.contains("你是一个冷幽默但不冒犯的人。"))
+        assertTrue(request.systemPrompt.contains("回复短一点，轻轻调侃。"))
+        assertTrue(request.systemPrompt.contains("输出协议"))
         assertTrue(request.userPrompt.contains("今晚有空吗？"))
-        assertTrue(request.userPrompt.contains("请严格返回 JSON"))
         assertEquals(2f, request.temperature)
         assertEquals(120, request.maxTokens)
         assertEquals(1, request.candidateCount)
     }
 
     @Test
-    fun build_forPlaybook_does_not_depend_on_chat_context() {
+    fun build_forPlaybook_includes_playbook_identity_prompt_category_and_role() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(emptyList()),
             settings = AppSettings(candidateCount = 2),
             styleProfile = ReplyStyleProfile(
                 mode = ReplyStyleMode.PLAYBOOK,
-                persona = ReplyPersona.ROMANCE_MASTER,
-                playbookScene = ReplyStyleCatalog.sceneFromId("good_morning")
+                personaConfig = ReplyStyleCatalog.defaultPersonaConfig.copy(label = "细腻暖男"),
+                playbookConfig = ReplyPlaybookConfig(
+                    id = "custom_scene",
+                    categoryLabel = "自定义邀约",
+                    label = "周末约饭",
+                    identityPrompt = "你正在帮用户发出自然邀约。",
+                    promptGuide = "不要压迫对方，给对方选择空间。",
+                    isBuiltin = false
+                )
             )
         )
 
-        assertTrue(request.userPrompt.contains("不需要参考聊天上下文"))
-        assertTrue(request.userPrompt.contains("早安"))
+        assertTrue(request.systemPrompt.contains("话术身份：你正在帮用户发出自然邀约。"))
+        assertTrue(request.userPrompt.contains("话术分类：自定义邀约"))
+        assertTrue(request.userPrompt.contains("话术名称：周末约饭"))
+        assertTrue(request.userPrompt.contains("不要压迫对方"))
+        assertTrue(request.userPrompt.contains("叠加角色风格：细腻暖男"))
         assertFalse(request.userPrompt.contains("聊天上下文："))
     }
 
     @Test
-    fun build_forPolish_uses_input_draft() {
+    fun build_forPolish_includes_polish_identity_prompt_and_draft() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(emptyList()),
             settings = AppSettings(candidateCount = 2),
             styleProfile = ReplyStyleProfile(
                 mode = ReplyStyleMode.POLISH,
-                persona = ReplyPersona.MATURE_UNCLE,
-                polishGoal = PolishGoal.FLIRTY
+                polishGoalConfig = PolishGoalConfig(
+                    id = "custom_polish",
+                    label = "更松弛",
+                    identityPrompt = "你正在把表达改得更松弛。",
+                    promptGuide = "去掉压力感，保留原意。",
+                    isBuiltin = false
+                )
             ),
             draftText = "我晚点回你"
         )
 
-        assertTrue(request.userPrompt.contains("草稿："))
+        assertTrue(request.systemPrompt.contains("你正在把表达改得更松弛。"))
+        assertTrue(request.userPrompt.contains("润色目标：更松弛"))
+        assertTrue(request.userPrompt.contains("去掉压力感"))
         assertTrue(request.userPrompt.contains("我晚点回你"))
-        assertTrue(request.systemPrompt.contains("润色目标：更暧昧"))
+        assertTrue(request.systemPrompt.contains("输出协议"))
     }
 }

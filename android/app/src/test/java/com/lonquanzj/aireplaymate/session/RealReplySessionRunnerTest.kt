@@ -234,6 +234,26 @@ class RealReplySessionRunnerTest {
         )
     }
 
+    @Test
+    fun run_falls_back_to_local_candidates_when_prompt_protocol_breaks_parsing() = runTest {
+        val llmGateway = FakeLlmGateway(Result.failure(IllegalStateException("LLM 返回候选不足")))
+
+        val result = newRunner(llmGateway = llmGateway).run(
+            debugState = debugState(
+                extractedMessages = listOf(
+                    chatMessage("m1", role = ChatRole.FRIEND, content = "你到哪了")
+                )
+            ),
+            settings = AppSettings(apiKey = "sk", model = "gpt", baseUrl = "https://api.openai.com")
+        )
+
+        assertTrue(result.isSuccess)
+        val session = result.getOrNull()!!
+        assertTrue(session.usedLocalFallback)
+        assertEquals("LLM 返回候选不足", session.localFallbackReason)
+        assertTrue(session.candidates.isNotEmpty())
+    }
+
     private fun newRunner(
         contextBuilder: ContextBuilder = DefaultContextBuilder,
         promptBuilder: PromptBuilder = StaticPromptBuilder,

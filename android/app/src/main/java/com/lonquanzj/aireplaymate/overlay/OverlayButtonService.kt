@@ -28,8 +28,6 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
-import com.lonquanzj.aireplaymate.prompt.PolishGoal
-import com.lonquanzj.aireplaymate.prompt.ReplyPersona
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
@@ -37,6 +35,7 @@ import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
 import com.lonquanzj.aireplaymate.session.RealReplySessionPhase
 import com.lonquanzj.aireplaymate.session.RealReplySessionRunner
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
+import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -269,9 +268,19 @@ class OverlayButtonService : Service() {
             return
         }
         if (sessionResult.usedLocalFallback) {
+            val reason = sessionResult.localFallbackReason ?: "未知错误"
+            val promptHint = if (
+                reason.contains("候选不足") ||
+                reason.contains("parse", ignoreCase = true) ||
+                reason.contains("JSON", ignoreCase = true)
+            ) {
+                "Prompt 协议可能不匹配，已使用本地兜底"
+            } else {
+                "LLM 不可用，已使用本地兜底：$reason"
+            }
             Toast.makeText(
                 this,
-                "LLM 不可用，已使用本地兜底：${sessionResult.localFallbackReason ?: "未知错误"}",
+                promptHint,
                 Toast.LENGTH_SHORT
             ).show()
         } else {
@@ -344,6 +353,7 @@ class OverlayButtonService : Service() {
         }
 
         val current = ReplyStyleSettingsStore.load(this)
+        val catalog = ReplyStyleCatalogStore.load(this)
         removeCandidatePanel()
 
         val content = LinearLayout(this).apply {
@@ -363,34 +373,36 @@ class OverlayButtonService : Service() {
         content.addView(menuSectionLabel("角色"))
         addCompactGrid(
             parent = content,
-            items = ReplyPersona.entries.toList(),
+            items = catalog.personas,
             columns = 3,
             topMarginDp = 8
-        ) { persona ->
+        ) { personaConfig ->
             val profile = current.copy(
                 mode = ReplyStyleMode.QUICK_REPLY,
-                persona = persona
+                persona = ReplyStyleCatalog.personaFromConfig(personaConfig),
+                personaConfig = personaConfig
             )
-            menuButton(persona.label, profile)
+            menuButton(personaConfig.label, profile)
         }
 
         content.addView(menuSectionLabel("话术宝典"))
-        ReplyStyleCatalog.scenes
+        catalog.playbooks
             .groupBy { it.categoryLabel }
-            .forEach { (categoryLabel, scenes) ->
+            .forEach { (categoryLabel, playbooks) ->
                 content.addView(menuSubsectionLabel(categoryLabel))
                 addCompactGrid(
                     parent = content,
-                    items = scenes,
+                    items = playbooks,
                     columns = 3,
                     topMarginDp = 6
-                ) { scene ->
+                ) { playbook ->
                     val profile = current.copy(
                         mode = ReplyStyleMode.PLAYBOOK,
-                        playbookScene = scene
+                        playbookScene = ReplyStyleCatalog.sceneFromConfig(playbook),
+                        playbookConfig = playbook
                     )
                     menuButton(
-                        scene.sceneLabel,
+                        playbook.label,
                         profile,
                         persistAsDefault = false
                     )
@@ -400,13 +412,14 @@ class OverlayButtonService : Service() {
         content.addView(menuSectionLabel("润色表达"))
         addCompactGrid(
             parent = content,
-            items = PolishGoal.entries.toList(),
+            items = catalog.polishGoals,
             columns = 3,
             topMarginDp = 8
         ) { goal ->
             val profile = current.copy(
                 mode = ReplyStyleMode.POLISH,
-                polishGoal = goal
+                polishGoal = ReplyStyleCatalog.polishGoalFromConfig(goal),
+                polishGoalConfig = goal
             )
             menuButton(goal.label, profile, persistAsDefault = false, requiresDraft = true)
         }

@@ -18,6 +18,8 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithText("权限状态").fetchSemanticsNode()
         composeRule.onNodeWithText("测试连接").fetchSemanticsNode()
         composeRule.onNodeWithText("LLM 回复风格").fetchSemanticsNode()
+        composeRule.onNodeWithText("测试 Prompt").fetchSemanticsNode()
+        composeRule.onNodeWithText("编辑当前").fetchSemanticsNode()
         composeRule.onNodeWithText("悬浮窗诊断").fetchSemanticsNode()
         composeRule.onNodeWithText("诊断日志").fetchSemanticsNode()
     }

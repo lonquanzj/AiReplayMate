@@ -81,24 +81,70 @@ data class ReplyPlaybookScene(
     val promptGuide: String
 )
 
+data class ReplyPersonaConfig(
+    val id: String,
+    val label: String,
+    val identityPrompt: String,
+    val promptGuide: String,
+    val isBuiltin: Boolean
+)
+
+data class ReplyPlaybookConfig(
+    val id: String,
+    val categoryLabel: String,
+    val label: String,
+    val identityPrompt: String,
+    val promptGuide: String,
+    val isBuiltin: Boolean
+)
+
+data class PolishGoalConfig(
+    val id: String,
+    val label: String,
+    val identityPrompt: String,
+    val promptGuide: String,
+    val isBuiltin: Boolean
+)
+
+data class ReplyStyleCatalogState(
+    val personas: List<ReplyPersonaConfig>,
+    val playbooks: List<ReplyPlaybookConfig>,
+    val polishGoals: List<PolishGoalConfig>
+) {
+    fun resolvePersona(id: String?): ReplyPersonaConfig {
+        return personas.firstOrNull { it.id == id } ?: ReplyStyleCatalog.defaultPersonaConfig
+    }
+
+    fun resolvePlaybook(id: String?): ReplyPlaybookConfig {
+        return playbooks.firstOrNull { it.id == id } ?: ReplyStyleCatalog.defaultPlaybookConfig
+    }
+
+    fun resolvePolishGoal(id: String?): PolishGoalConfig {
+        return polishGoals.firstOrNull { it.id == id } ?: ReplyStyleCatalog.defaultPolishGoalConfig
+    }
+}
+
 data class ReplyStyleProfile(
     val mode: ReplyStyleMode = ReplyStyleMode.QUICK_REPLY,
     val persona: ReplyPersona = ReplyPersona.default,
     val playbookScene: ReplyPlaybookScene? = ReplyStyleCatalog.defaultScene,
-    val polishGoal: PolishGoal = PolishGoal.default
+    val polishGoal: PolishGoal = PolishGoal.default,
+    val personaConfig: ReplyPersonaConfig = ReplyStyleCatalog.defaultPersonaConfig,
+    val playbookConfig: ReplyPlaybookConfig = ReplyStyleCatalog.defaultPlaybookConfig,
+    val polishGoalConfig: PolishGoalConfig = ReplyStyleCatalog.defaultPolishGoalConfig
 ) {
     val displayLabel: String
         get() = when (mode) {
-            ReplyStyleMode.QUICK_REPLY -> "${persona.label} · 快速回复"
-            ReplyStyleMode.PLAYBOOK -> "${persona.label} · ${playbookScene?.sceneLabel ?: "话术宝典"}"
-            ReplyStyleMode.POLISH -> "${persona.label} · ${polishGoal.label}"
+            ReplyStyleMode.QUICK_REPLY -> "${personaConfig.label} · 快速回复"
+            ReplyStyleMode.PLAYBOOK -> "${personaConfig.label} · ${playbookConfig.label}"
+            ReplyStyleMode.POLISH -> "${personaConfig.label} · ${polishGoalConfig.label}"
         }
 
     val shortLabel: String
         get() = when (mode) {
-            ReplyStyleMode.QUICK_REPLY -> persona.label
-            ReplyStyleMode.PLAYBOOK -> playbookScene?.sceneLabel ?: "话术宝典"
-            ReplyStyleMode.POLISH -> polishGoal.label
+            ReplyStyleMode.QUICK_REPLY -> personaConfig.label
+            ReplyStyleMode.PLAYBOOK -> playbookConfig.label
+            ReplyStyleMode.POLISH -> polishGoalConfig.label
         }
 }
 
@@ -118,22 +164,80 @@ object ReplyStyleCatalog {
     )
 
     val defaultScene: ReplyPlaybookScene = scenes.first()
+    val defaultPersonaConfig: ReplyPersonaConfig = ReplyPersona.default.toConfig()
+    val defaultPlaybookConfig: ReplyPlaybookConfig = defaultScene.toConfig()
+    val defaultPolishGoalConfig: PolishGoalConfig = PolishGoal.default.toConfig()
+    val defaultCatalogState: ReplyStyleCatalogState = ReplyStyleCatalogState(
+        personas = ReplyPersona.entries.map { it.toConfig() },
+        playbooks = scenes.map { it.toConfig() },
+        polishGoals = PolishGoal.entries.map { it.toConfig() }
+    )
 
     fun sceneFromId(sceneId: String?): ReplyPlaybookScene {
         return scenes.firstOrNull { it.sceneId == sceneId } ?: defaultScene
+    }
+
+    fun personaFromConfig(config: ReplyPersonaConfig): ReplyPersona {
+        return ReplyPersona.fromId(config.id)
+    }
+
+    fun sceneFromConfig(config: ReplyPlaybookConfig): ReplyPlaybookScene {
+        return sceneFromId(config.id)
+    }
+
+    fun polishGoalFromConfig(config: PolishGoalConfig): PolishGoal {
+        return PolishGoal.fromId(config.id)
     }
 
     fun profile(
         modeId: String?,
         personaId: String?,
         sceneId: String?,
-        polishGoalId: String?
+        polishGoalId: String?,
+        catalog: ReplyStyleCatalogState = defaultCatalogState
     ): ReplyStyleProfile {
+        val personaConfig = catalog.resolvePersona(personaId)
+        val playbookConfig = catalog.resolvePlaybook(sceneId)
+        val polishGoalConfig = catalog.resolvePolishGoal(polishGoalId)
         return ReplyStyleProfile(
             mode = ReplyStyleMode.fromId(modeId),
-            persona = ReplyPersona.fromId(personaId),
-            playbookScene = sceneFromId(sceneId),
-            polishGoal = PolishGoal.fromId(polishGoalId)
+            persona = personaFromConfig(personaConfig),
+            playbookScene = sceneFromConfig(playbookConfig),
+            polishGoal = polishGoalFromConfig(polishGoalConfig),
+            personaConfig = personaConfig,
+            playbookConfig = playbookConfig,
+            polishGoalConfig = polishGoalConfig
         )
     }
+}
+
+private fun ReplyPersona.toConfig(): ReplyPersonaConfig {
+    return ReplyPersonaConfig(
+        id = id,
+        label = label,
+        identityPrompt = "你正在模仿“$label”这种微信回复身份。",
+        promptGuide = promptGuide,
+        isBuiltin = true
+    )
+}
+
+private fun ReplyPlaybookScene.toConfig(): ReplyPlaybookConfig {
+    return ReplyPlaybookConfig(
+        id = sceneId,
+        categoryLabel = categoryLabel,
+        label = sceneLabel,
+        identityPrompt = "你正在生成“$categoryLabel / $sceneLabel”场景的话术。",
+        promptGuide = promptGuide,
+        isBuiltin = true
+    )
+}
+
+private fun PolishGoal.toConfig(): PolishGoalConfig {
+    return PolishGoalConfig(
+        id = id,
+        label = label,
+        identityPrompt = "你正在按“$label”目标润色用户草稿。",
+        promptGuide = promptGuide,
+        isBuiltin = true
+    )
 }

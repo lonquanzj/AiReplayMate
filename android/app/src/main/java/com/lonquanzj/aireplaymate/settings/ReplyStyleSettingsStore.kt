@@ -16,11 +16,13 @@ object ReplyStyleSettingsStore {
 
     fun load(context: Context): ReplyStyleProfile {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val catalog = ReplyStyleCatalogStore.load(context)
         return ReplyStyleCatalog.profile(
             modeId = ReplyStyleMode.QUICK_REPLY.id,
             personaId = prefs.getString(KEY_PERSONA, ReplyPersona.default.id),
             sceneId = prefs.getString(KEY_SCENE, ReplyStyleCatalog.defaultScene.sceneId),
-            polishGoalId = prefs.getString(KEY_POLISH_GOAL, PolishGoal.default.id)
+            polishGoalId = prefs.getString(KEY_POLISH_GOAL, PolishGoal.default.id),
+            catalog = catalog
         )
     }
 
@@ -31,9 +33,9 @@ object ReplyStyleSettingsStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_MODE, ReplyStyleMode.QUICK_REPLY.id)
-            .putString(KEY_PERSONA, profile.persona.id)
-            .putString(KEY_SCENE, profile.playbookScene?.sceneId ?: ReplyStyleCatalog.defaultScene.sceneId)
-            .putString(KEY_POLISH_GOAL, profile.polishGoal.id)
+            .putString(KEY_PERSONA, profile.personaConfig.id)
+            .putString(KEY_SCENE, profile.playbookConfig.id)
+            .putString(KEY_POLISH_GOAL, profile.polishGoalConfig.id)
             .apply()
     }
 }

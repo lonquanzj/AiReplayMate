@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,11 +48,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -71,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -80,7 +85,10 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.ChatMessage
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
+import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
+import com.lonquanzj.aireplaymate.context.ChatContext
+import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
 import com.lonquanzj.aireplaymate.demo.DemoAuthor
@@ -103,15 +111,19 @@ import com.lonquanzj.aireplaymate.overlay.OverlayServiceState
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
+import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
-import com.lonquanzj.aireplaymate.prompt.PolishGoal
-import com.lonquanzj.aireplaymate.prompt.ReplyPersona
+import com.lonquanzj.aireplaymate.prompt.PolishGoalConfig
+import com.lonquanzj.aireplaymate.prompt.ReplyPersonaConfig
+import com.lonquanzj.aireplaymate.prompt.ReplyPlaybookConfig
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
+import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
@@ -129,9 +141,9 @@ private data class PermissionSnapshot(
 
 private enum class HomeTab(val label: String) {
     MAIN("主界面"),
-    SETTINGS("设置"),
-    PERMISSIONS("权限"),
-    DEBUG("调试")
+    STYLE("回复风格"),
+    ADVANCED("高级调试"),
+    LLM("LLM 设置")
 }
 
 class MainActivity : ComponentActivity() {
@@ -187,10 +199,14 @@ private fun MainScreen(
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
     var testingLlm by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var replyStyleProfile by remember(context) {
         mutableStateOf(ReplyStyleSettingsStore.load(context))
+    }
+    var replyStyleCatalog by remember(context) {
+        mutableStateOf(ReplyStyleCatalogStore.load(context))
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val debugState by AccessibilityDebugStore.state.collectAsState()
@@ -206,8 +222,10 @@ private fun MainScreen(
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
     val mainTabScrollState = rememberScrollState()
-    val permissionsTabScrollState = rememberScrollState()
+    val llmTabScrollState = rememberScrollState()
+    val styleTabScrollState = rememberScrollState()
     val debugTabScrollState = rememberScrollState()
+    val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
     val mediaProjectionManager = remember(context) {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
     }
@@ -270,6 +288,16 @@ private fun MainScreen(
 
     LaunchedEffect(overlayDiagnosticsState.updatedAtMillis) {
         DiagnosticLogStore.recordOverlay(overlayDiagnosticsState)
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (pagerState.currentPage != selectedTab.ordinal) {
+            pagerState.animateScrollToPage(selectedTab.ordinal)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage) {
+        selectedTab = HomeTab.entries[pagerState.currentPage]
     }
 
     if (sessionState.showCandidateSheet) {
@@ -380,28 +408,17 @@ private fun MainScreen(
     ) {
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.statusBars,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text("AiReplayMate")
-                            Text(
-                                text = "基于当前微信上下文生成候选回复",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                )
-            }
+            contentWindowInsets = WindowInsets.statusBars
         ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                TabRow(selectedTabIndex = selectedTab.ordinal) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab.ordinal,
+                    edgePadding = 12.dp
+                ) {
                     HomeTab.entries.forEach { tab ->
                         Tab(
                             selected = selectedTab == tab,
@@ -411,14 +428,119 @@ private fun MainScreen(
                     }
                 }
 
-                when (selectedTab) {
-                    HomeTab.MAIN -> {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { page ->
+                    when (HomeTab.entries[page]) {
+                        HomeTab.MAIN -> {
                         Column(
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxSize()
                                 .fillMaxWidth()
                                 .padding(horizontal = 20.dp)
                                 .verticalScroll(mainTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            DailyHomeHeader(
+                                permissionSnapshot = permissionSnapshot,
+                                overlayServiceState = overlayServiceState,
+                                llmValidation = AppSettingsValidator.validate(appSettings),
+                                latestLogTitle = diagnosticLogState.entries.firstOrNull()?.title
+                            )
+
+                            PermissionStatusSection(
+                                permissionSnapshot = permissionSnapshot,
+                                overlayServiceState = overlayServiceState,
+                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                onOpenOverlaySettings = onOpenOverlaySettings,
+                                onStartOverlayService = onStartOverlayService,
+                                onStopOverlayService = onStopOverlayService
+                            )
+
+                            DiagnosticLogSection(logState = diagnosticLogState)
+
+                            AboutEntry(onClick = { showAboutDialog = true })
+
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+
+                    HomeTab.LLM -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(llmTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            LlmSettingsSection(
+                                settings = appSettings,
+                                validation = AppSettingsValidator.validate(appSettings),
+                                isTesting = testingLlm,
+                                onSettingsChange = {
+                                    appSettings = it
+                                    saveAppSettings(it)
+                                },
+                                onTestConnection = {
+                                    scope.launch {
+                                        testingLlm = true
+                                        testLlmConnection(appSettings)
+                                        testingLlm = false
+                                    }
+                                }
+                            )
+
+                            LlmDiagnosticsSection(debugState = llmDebugState)
+
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+
+                    HomeTab.STYLE -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .verticalScroll(styleTabScrollState),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            ReplyStyleSection(
+                                profile = replyStyleProfile,
+                                catalog = replyStyleCatalog,
+                                onProfileChange = { nextProfile ->
+                                    replyStyleProfile = nextProfile
+                                    ReplyStyleSettingsStore.save(context, nextProfile)
+                                },
+                                onCatalogChange = { nextCatalog ->
+                                    replyStyleCatalog = nextCatalog
+                                    ReplyStyleCatalogStore.save(context, nextCatalog)
+                                    replyStyleProfile = replyStyleProfile.withResolvedCatalog(nextCatalog)
+                                    ReplyStyleSettingsStore.save(context, replyStyleProfile)
+                                },
+                                onResetBuiltinCatalog = {
+                                    val nextCatalog = ReplyStyleCatalogStore.resetBuiltins(context, replyStyleCatalog)
+                                    replyStyleCatalog = nextCatalog
+                                    replyStyleProfile = replyStyleProfile.withResolvedCatalog(nextCatalog)
+                                    ReplyStyleSettingsStore.save(context, replyStyleProfile)
+                                },
+                                previewMessages = previewMessages
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+
+                    HomeTab.ADVANCED -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .verticalScroll(debugTabScrollState),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             HeroCard(
@@ -451,14 +573,6 @@ private fun MainScreen(
                                 messages = previewMessages
                             )
 
-                            ReplyStyleSection(
-                                profile = replyStyleProfile,
-                                onProfileChange = { nextProfile ->
-                                    replyStyleProfile = nextProfile
-                                    ReplyStyleSettingsStore.save(context, nextProfile)
-                                }
-                            )
-
                             ReplyDraftSection(
                                 replyDraft = sessionState.replyDraft,
                                 onReplyDraftChange = sessionManager::updateReplyDraft,
@@ -467,60 +581,6 @@ private fun MainScreen(
                                     sessionManager.noteRealAutofillResult(result.message)
                                 },
                                 canTryRealAutofill = sessionState.replyDraft.isNotBlank()
-                            )
-
-                            ActivityLogSection(entries = sessionState.activityLog)
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                        }
-                    }
-
-                    HomeTab.SETTINGS -> {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(permissionsTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            LlmSettingsSection(
-                                settings = appSettings,
-                                validation = AppSettingsValidator.validate(appSettings),
-                                isTesting = testingLlm,
-                                onSettingsChange = {
-                                    appSettings = it
-                                    saveAppSettings(it)
-                                },
-                                onTestConnection = {
-                                    scope.launch {
-                                        testingLlm = true
-                                        testLlmConnection(appSettings)
-                                        testingLlm = false
-                                    }
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                        }
-                    }
-
-                    HomeTab.PERMISSIONS -> {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(permissionsTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            PermissionStatusSection(
-                                permissionSnapshot = permissionSnapshot,
-                                overlayServiceState = overlayServiceState,
-                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                                onOpenOverlaySettings = onOpenOverlaySettings,
-                                onStartOverlayService = onStartOverlayService,
-                                onStopOverlayService = onStopOverlayService
                             )
 
                             OcrFallbackSection(
@@ -549,7 +609,7 @@ private fun MainScreen(
                                         val result = MlKitChineseOcrEngine(context.applicationContext)
                                             .recognizeChatMessages(
                                                 targetApp = "wechat",
-                                                reason = "首页手动测试 OCR 识别"
+                                                reason = "高级调试手动测试 OCR 识别"
                                             )
                                         testingOcrRecognition = false
                                         Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
@@ -557,22 +617,7 @@ private fun MainScreen(
                                 }
                             )
 
-                            Spacer(modifier = Modifier.height(24.dp))
-                        }
-                    }
-
-                    HomeTab.DEBUG -> {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .verticalScroll(debugTabScrollState),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
                             OverlayDiagnosticsSection(debugState = overlayDiagnosticsState)
-
-                            LlmDiagnosticsSection(debugState = llmDebugState)
 
                             RealAccessibilitySection(
                                 debugState = debugState,
@@ -581,11 +626,169 @@ private fun MainScreen(
 
                             DiagnosticLogSection(logState = diagnosticLogState)
 
+                            ActivityLogSection(entries = sessionState.activityLog)
+
                             Spacer(modifier = Modifier.height(24.dp))
                         }
                     }
+                    }
                 }
             }
+        }
+    }
+
+    if (showAboutDialog) {
+        AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+}
+
+@Composable
+private fun AboutEntry(onClick: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "关于",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "项目说明与使用边界",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "查看",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("关于 AiChat")
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("AiReplayMate 基于当前微信上下文生成候选回复。")
+                Text("当前版本面向微信单聊辅助回复：生成候选、由你选择、只填入输入框，不自动发送。")
+                Text("如果 Accessibility 上下文不足，会按设置尝试 OCR 兜底；诊断信息默认只保留摘要，避免记录完整聊天原文。")
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("知道了")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DailyHomeHeader(
+    permissionSnapshot: PermissionSnapshot,
+    overlayServiceState: OverlayServiceState,
+    llmValidation: AppSettingsValidation,
+    latestLogTitle: String?
+) {
+    val permissionReady = permissionSnapshot.accessibilityEnabled && permissionSnapshot.overlayEnabled
+    val llmReady = llmValidation.canRequest
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF12332F)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "日常入口",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "先确认权限、气泡和模型配置，再去微信单聊里点气泡生成候选。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFDCEEEB)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                DailyStatusItem(
+                    label = "权限",
+                    value = if (permissionReady) "已就绪" else "待处理",
+                    modifier = Modifier.weight(1f)
+                )
+                DailyStatusItem(
+                    label = "气泡",
+                    value = overlayServiceState.status.label,
+                    modifier = Modifier.weight(1f)
+                )
+                DailyStatusItem(
+                    label = "LLM",
+                    value = if (llmReady) "可测试" else "需配置",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text(
+                text = "最近诊断：${latestLogTitle ?: "暂无"}",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color(0xFFEAF7F4)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyStatusItem(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.12f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFFBFE1DC)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -946,25 +1149,97 @@ private fun llmSettingsHint(
 @Composable
 private fun ReplyStyleSection(
     profile: ReplyStyleProfile,
-    onProfileChange: (ReplyStyleProfile) -> Unit
+    catalog: ReplyStyleCatalogState,
+    onProfileChange: (ReplyStyleProfile) -> Unit,
+    onCatalogChange: (ReplyStyleCatalogState) -> Unit,
+    onResetBuiltinCatalog: () -> Unit,
+    previewMessages: List<DemoMessage>
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "LLM 回复风格",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
+    var previewRequest by remember { mutableStateOf<LlmRequest?>(null) }
+    var editingItem by remember { mutableStateOf<StyleEditTarget?>(null) }
+    var isEditMode by remember { mutableStateOf(false) }
+
+    previewRequest?.let { request ->
+        AlertDialog(
+            onDismissRequest = { previewRequest = null },
+            confirmButton = {
+                TextButton(onClick = { previewRequest = null }) {
+                    Text("关闭")
+                }
+            },
+            title = { Text("Prompt 预览") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("System Prompt", fontWeight = FontWeight.SemiBold)
+                    Text(request.systemPrompt, style = MaterialTheme.typography.bodySmall)
+                    HorizontalDivider()
+                    Text("User Prompt", fontWeight = FontWeight.SemiBold)
+                    Text(request.userPrompt, style = MaterialTheme.typography.bodySmall)
+                }
+            }
         )
+    }
+
+    editingItem?.let { target ->
+        StyleItemEditorDialog(
+            target = target,
+            onDismiss = { editingItem = null },
+            onSave = { savedTarget ->
+                onCatalogChange(catalog.saveStyleTarget(savedTarget))
+                onProfileChange(profile.withStyleTarget(savedTarget))
+                editingItem = null
+            },
+            onDelete = { deleteTarget ->
+                onCatalogChange(catalog.deleteStyleTarget(deleteTarget))
+                onProfileChange(profile.withResolvedCatalog(catalog.deleteStyleTarget(deleteTarget)))
+                editingItem = null
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "LLM 回复风格",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            OutlinedButton(
+                onClick = { isEditMode = !isEditMode },
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = ButtonDefaults.ContentPadding
+            ) {
+                Text(if (isEditMode) "完成" else "编辑")
+            }
+        }
 
         Card(
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "默认回复只使用角色配置；话术宝典和润色表达是长按气泡里的单次功能，不会覆盖短按默认回复。",
+                    text = "选择默认角色、话术和润色目标；每一类都可以编辑提示词，也可以新增自己的条目。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -977,10 +1252,22 @@ private fun ReplyStyleSection(
                     fontWeight = FontWeight.SemiBold
                 )
                 ChoiceButtonGrid(
-                    items = ReplyPersona.entries.map { it.id to it.label },
-                    selectedId = profile.persona.id,
+                    items = catalog.personas.map { it.id to it.label },
+                    selectedId = profile.personaConfig.id,
+                    isEditMode = isEditMode,
+                    onAdd = {
+                        editingItem = StyleEditTarget.Persona(newCustomPersonaConfig())
+                    },
                     onSelect = { personaId ->
-                        onProfileChange(profile.copy(persona = ReplyPersona.fromId(personaId)))
+                        val persona = catalog.resolvePersona(personaId)
+                        if (isEditMode) {
+                            editingItem = StyleEditTarget.Persona(persona)
+                        } else {
+                            onProfileChange(
+                                profile.copy(personaConfig = persona)
+                                    .withResolvedCatalog(catalog)
+                            )
+                        }
                     }
                 )
 
@@ -989,15 +1276,23 @@ private fun ReplyStyleSection(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                ChoiceButtonGrid(
-                    items = ReplyStyleCatalog.scenes.map { it.sceneId to "${it.categoryLabel} · ${it.sceneLabel}" },
-                    selectedId = profile.playbookScene?.sceneId ?: ReplyStyleCatalog.defaultScene.sceneId,
-                    onSelect = { sceneId ->
-                        onProfileChange(
-                            profile.copy(
-                                playbookScene = ReplyStyleCatalog.sceneFromId(sceneId)
+                PlaybookChoiceGroups(
+                    playbooks = catalog.playbooks,
+                    selectedId = profile.playbookConfig.id,
+                    isEditMode = isEditMode,
+                    onAdd = { categoryLabel ->
+                        editingItem = StyleEditTarget.Playbook(newCustomPlaybookConfig(categoryLabel))
+                    },
+                    onSelect = { playbookId ->
+                        val playbook = catalog.resolvePlaybook(playbookId)
+                        if (isEditMode) {
+                            editingItem = StyleEditTarget.Playbook(playbook)
+                        } else {
+                            onProfileChange(
+                                profile.copy(playbookConfig = playbook)
+                                    .withResolvedCatalog(catalog)
                             )
-                        )
+                        }
                     }
                 )
 
@@ -1007,14 +1302,22 @@ private fun ReplyStyleSection(
                     fontWeight = FontWeight.SemiBold
                 )
                 ChoiceButtonGrid(
-                    items = PolishGoal.entries.map { it.id to it.label },
-                    selectedId = profile.polishGoal.id,
+                    items = catalog.polishGoals.map { it.id to it.label },
+                    selectedId = profile.polishGoalConfig.id,
+                    isEditMode = isEditMode,
+                    onAdd = {
+                        editingItem = StyleEditTarget.Polish(newCustomPolishGoalConfig())
+                    },
                     onSelect = { goalId ->
-                        onProfileChange(
-                            profile.copy(
-                                polishGoal = PolishGoal.fromId(goalId)
+                        val goal = catalog.resolvePolishGoal(goalId)
+                        if (isEditMode) {
+                            editingItem = StyleEditTarget.Polish(goal)
+                        } else {
+                            onProfileChange(
+                                profile.copy(polishGoalConfig = goal)
+                                    .withResolvedCatalog(catalog)
                             )
-                        )
+                        }
                     }
                 )
 
@@ -1025,35 +1328,386 @@ private fun ReplyStyleSection(
                 )
             }
         }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Prompt 调试",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedButton(
+                    onClick = {
+                previewRequest = DefaultPromptBuilder.build(
+                    context = previewMessages.toPromptPreviewContext(),
+                    settings = AppSettings(candidateCount = 3),
+                            styleProfile = profile.asDefaultReply()
+                )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("测试 Prompt")
+                }
+                TextButton(onClick = onResetBuiltinCatalog) {
+                    Text("恢复内置项默认")
+                }
+            }
+        }
     }
+}
+
+private sealed class StyleEditTarget {
+    data class Persona(val item: ReplyPersonaConfig) : StyleEditTarget()
+    data class Playbook(val item: ReplyPlaybookConfig) : StyleEditTarget()
+    data class Polish(val item: PolishGoalConfig) : StyleEditTarget()
+}
+
+@Composable
+private fun StyleItemEditorDialog(
+    target: StyleEditTarget,
+    onDismiss: () -> Unit,
+    onSave: (StyleEditTarget) -> Unit,
+    onDelete: (StyleEditTarget) -> Unit
+) {
+    var label by remember(target) { mutableStateOf(target.label) }
+    var category by remember(target) { mutableStateOf(target.categoryLabel.orEmpty()) }
+    var identityPrompt by remember(target) { mutableStateOf(target.identityPrompt) }
+    var promptGuide by remember(target) { mutableStateOf(target.promptGuide) }
+    val canDelete = !target.isBuiltin
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(target.dialogTitle) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("名称") },
+                    shape = RoundedCornerShape(16.dp)
+                )
+                if (target is StyleEditTarget.Playbook) {
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = { category = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("分类") },
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+                OutlinedTextField(
+                    value = identityPrompt,
+                    onValueChange = { identityPrompt = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    label = { Text("身份/定位") },
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                )
+                OutlinedTextField(
+                    value = promptGuide,
+                    onValueChange = { promptGuide = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 5,
+                    label = { Text("提示词") },
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                )
+                if (!canDelete) {
+                    Text(
+                        text = "内置项可编辑，但不能删除。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canDelete) {
+                    TextButton(onClick = { onDelete(target) }) {
+                        Text("删除")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        target.withValues(
+                            label = label.ifBlank { target.label },
+                            categoryLabel = category.ifBlank { "自定义话术" },
+                            identityPrompt = identityPrompt.ifBlank { target.identityPrompt },
+                            promptGuide = promptGuide.ifBlank { target.promptGuide }
+                        )
+                    )
+                }
+            ) {
+                Text("保存")
+            }
+        }
+    )
+}
+
+private val StyleEditTarget.label: String
+    get() = when (this) {
+        is StyleEditTarget.Persona -> item.label
+        is StyleEditTarget.Playbook -> item.label
+        is StyleEditTarget.Polish -> item.label
+    }
+
+private val StyleEditTarget.categoryLabel: String?
+    get() = when (this) {
+        is StyleEditTarget.Playbook -> item.categoryLabel
+        else -> null
+    }
+
+private val StyleEditTarget.identityPrompt: String
+    get() = when (this) {
+        is StyleEditTarget.Persona -> item.identityPrompt
+        is StyleEditTarget.Playbook -> item.identityPrompt
+        is StyleEditTarget.Polish -> item.identityPrompt
+    }
+
+private val StyleEditTarget.promptGuide: String
+    get() = when (this) {
+        is StyleEditTarget.Persona -> item.promptGuide
+        is StyleEditTarget.Playbook -> item.promptGuide
+        is StyleEditTarget.Polish -> item.promptGuide
+    }
+
+private val StyleEditTarget.isBuiltin: Boolean
+    get() = when (this) {
+        is StyleEditTarget.Persona -> item.isBuiltin
+        is StyleEditTarget.Playbook -> item.isBuiltin
+        is StyleEditTarget.Polish -> item.isBuiltin
+    }
+
+private val StyleEditTarget.dialogTitle: String
+    get() = when (this) {
+        is StyleEditTarget.Persona -> "编辑角色"
+        is StyleEditTarget.Playbook -> "编辑话术宝典"
+        is StyleEditTarget.Polish -> "编辑润色表达"
+    }
+
+private fun StyleEditTarget.withValues(
+    label: String,
+    categoryLabel: String,
+    identityPrompt: String,
+    promptGuide: String
+): StyleEditTarget {
+    return when (this) {
+        is StyleEditTarget.Persona -> copy(
+            item = item.copy(
+                label = label,
+                identityPrompt = identityPrompt,
+                promptGuide = promptGuide
+            )
+        )
+
+        is StyleEditTarget.Playbook -> copy(
+            item = item.copy(
+                categoryLabel = categoryLabel,
+                label = label,
+                identityPrompt = identityPrompt,
+                promptGuide = promptGuide
+            )
+        )
+
+        is StyleEditTarget.Polish -> copy(
+            item = item.copy(
+                label = label,
+                identityPrompt = identityPrompt,
+                promptGuide = promptGuide
+            )
+        )
+    }
+}
+
+private fun ReplyStyleCatalogState.saveStyleTarget(target: StyleEditTarget): ReplyStyleCatalogState {
+    return when (target) {
+        is StyleEditTarget.Persona -> copy(personas = personas.upsert(target.item, ReplyPersonaConfig::id))
+        is StyleEditTarget.Playbook -> copy(playbooks = playbooks.upsert(target.item, ReplyPlaybookConfig::id))
+        is StyleEditTarget.Polish -> copy(polishGoals = polishGoals.upsert(target.item, PolishGoalConfig::id))
+    }
+}
+
+private fun ReplyStyleCatalogState.deleteStyleTarget(target: StyleEditTarget): ReplyStyleCatalogState {
+    if (target.isBuiltin) return this
+    return when (target) {
+        is StyleEditTarget.Persona -> copy(personas = personas.filterNot { it.id == target.item.id })
+        is StyleEditTarget.Playbook -> copy(playbooks = playbooks.filterNot { it.id == target.item.id })
+        is StyleEditTarget.Polish -> copy(polishGoals = polishGoals.filterNot { it.id == target.item.id })
+    }
+}
+
+private fun ReplyStyleProfile.withStyleTarget(target: StyleEditTarget): ReplyStyleProfile {
+    return when (target) {
+        is StyleEditTarget.Persona -> copy(
+            persona = ReplyStyleCatalog.personaFromConfig(target.item),
+            personaConfig = target.item
+        )
+
+        is StyleEditTarget.Playbook -> copy(
+            playbookScene = ReplyStyleCatalog.sceneFromConfig(target.item),
+            playbookConfig = target.item
+        )
+
+        is StyleEditTarget.Polish -> copy(
+            polishGoal = ReplyStyleCatalog.polishGoalFromConfig(target.item),
+            polishGoalConfig = target.item
+        )
+    }
+}
+
+private fun ReplyStyleProfile.withResolvedCatalog(catalog: ReplyStyleCatalogState): ReplyStyleProfile {
+    val resolvedPersona = catalog.resolvePersona(personaConfig.id)
+    val resolvedPlaybook = catalog.resolvePlaybook(playbookConfig.id)
+    val resolvedPolish = catalog.resolvePolishGoal(polishGoalConfig.id)
+    return copy(
+        persona = ReplyStyleCatalog.personaFromConfig(resolvedPersona),
+        playbookScene = ReplyStyleCatalog.sceneFromConfig(resolvedPlaybook),
+        polishGoal = ReplyStyleCatalog.polishGoalFromConfig(resolvedPolish),
+        personaConfig = resolvedPersona,
+        playbookConfig = resolvedPlaybook,
+        polishGoalConfig = resolvedPolish
+    )
+}
+
+private fun <T> List<T>.upsert(
+    item: T,
+    idOf: (T) -> String
+): List<T> {
+    val exists = any { idOf(it) == idOf(item) }
+    return if (exists) {
+        map { current -> if (idOf(current) == idOf(item)) item else current }
+    } else {
+        this + item
+    }
+}
+
+private fun newCustomPersonaConfig(): ReplyPersonaConfig {
+    return ReplyPersonaConfig(
+        id = ReplyStyleCatalogStore.newCustomId("persona"),
+        label = "自定义角色",
+        identityPrompt = "你正在模仿一个自定义微信回复身份。",
+        promptGuide = "按用户填写的风格自然回复。",
+        isBuiltin = false
+    )
+}
+
+private fun newCustomPlaybookConfig(categoryLabel: String): ReplyPlaybookConfig {
+    val category = categoryLabel.ifBlank { "自定义话术" }
+    return ReplyPlaybookConfig(
+        id = ReplyStyleCatalogStore.newCustomId("playbook"),
+        categoryLabel = category,
+        label = "自定义场景",
+        identityPrompt = "你正在生成一个自定义聊天场景的话术。",
+        promptGuide = "按用户填写的场景目标生成可直接发送的话术。",
+        isBuiltin = false
+    )
+}
+
+private fun newCustomPolishGoalConfig(): PolishGoalConfig {
+    return PolishGoalConfig(
+        id = ReplyStyleCatalogStore.newCustomId("polish"),
+        label = "自定义润色",
+        identityPrompt = "你正在按自定义目标润色用户草稿。",
+        promptGuide = "按用户填写的润色目标改写表达。",
+        isBuiltin = false
+    )
 }
 
 @Composable
 private fun ChoiceButtonGrid(
     items: List<Pair<String, String>>,
     selectedId: String,
+    isEditMode: Boolean,
+    onAdd: (() -> Unit)? = null,
     onSelect: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items.chunked(2).forEach { rowItems ->
+        val gridItems = items.map { StyleGridItem.Choice(it.first, it.second) } +
+            if (isEditMode && onAdd != null) listOf(StyleGridItem.Add) else emptyList()
+        gridItems.chunked(4).forEach { rowItems ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                rowItems.forEach { (id, label) ->
-                    StyleChoiceButton(
-                        label = label,
-                        selected = id == selectedId,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onSelect(id) }
-                    )
+                rowItems.forEach { item ->
+                    when (item) {
+                        StyleGridItem.Add -> StyleAddButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { onAdd?.invoke() }
+                        )
+
+                        is StyleGridItem.Choice -> StyleChoiceButton(
+                            label = item.label,
+                            selected = item.id == selectedId,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onSelect(item.id) }
+                        )
+                    }
                 }
-                if (rowItems.size == 1) {
+                repeat(4 - rowItems.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PlaybookChoiceGroups(
+    playbooks: List<ReplyPlaybookConfig>,
+    selectedId: String,
+    isEditMode: Boolean,
+    onAdd: (String) -> Unit,
+    onSelect: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        playbooks.groupBy { it.categoryLabel }.forEach { (category, groupItems) ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = category,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+                ChoiceButtonGrid(
+                    items = groupItems.map { it.id to it.label },
+                    selectedId = selectedId,
+                    isEditMode = isEditMode,
+                    onAdd = { onAdd(category) },
+                    onSelect = onSelect
+                )
+            }
+        }
+    }
+}
+
+private sealed class StyleGridItem {
+    data class Choice(val id: String, val label: String) : StyleGridItem()
+    object Add : StyleGridItem()
 }
 
 @Composable
@@ -1067,23 +1721,48 @@ private fun StyleChoiceButton(
         Button(
             onClick = onClick,
             modifier = modifier,
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = styleButtonContentPadding()
         ) {
-            Text(label)
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     } else {
         OutlinedButton(
             onClick = onClick,
             modifier = modifier,
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = styleButtonContentPadding()
         ) {
-            Text(label)
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
+@Composable
+private fun StyleAddButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = styleButtonContentPadding(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        )
+    ) {
+        Text("新增", maxLines = 1)
+    }
+}
+
+private fun styleButtonContentPadding(): PaddingValues {
+    return PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+}
+
 private fun styleExample(profile: ReplyStyleProfile): String {
-    return "短按气泡：按“${profile.persona.label}”生成默认回复；长按气泡：话术宝典按“${profile.playbookScene?.sceneLabel ?: "话术宝典"}”单次出文案，润色会读取输入框草稿并回写候选。"
+    return "短按气泡：按“${profile.personaConfig.label}”生成默认回复；长按气泡：话术宝典按“${profile.playbookConfig.label}”单次出文案，润色按“${profile.polishGoalConfig.label}”读取输入框草稿并回写候选。"
 }
 
 private fun ReplyStyleProfile.asDefaultReply(): ReplyStyleProfile {
@@ -2205,6 +2884,36 @@ private fun List<ChatMessage>.toPreviewMessages(): List<DemoMessage> {
             content = message.content
         )
     }
+}
+
+private fun List<DemoMessage>.toPromptPreviewContext(): ChatContext {
+    val messages = if (isEmpty()) {
+        listOf(
+            DemoMessage(DemoAuthor.FRIEND, "今晚有空聊会儿吗？"),
+            DemoMessage(DemoAuthor.ME, "我刚忙完，正准备回你")
+        )
+    } else {
+        this
+    }
+    return ChatContext(
+        messages = messages.mapIndexed { index, message ->
+            ChatMessage(
+                id = "prompt_preview_$index",
+                role = when (message.author) {
+                    DemoAuthor.ME -> ChatRole.ME
+                    DemoAuthor.FRIEND -> ChatRole.FRIEND
+                    DemoAuthor.SYSTEM -> ChatRole.SYSTEM
+                },
+                content = message.content,
+                timestamp = null,
+                source = MessageSource.ACCESSIBILITY,
+                confidence = 1f
+            )
+        },
+        targetApp = "wechat",
+        conversationType = ConversationType.SINGLE_CHAT,
+        collectedAt = System.currentTimeMillis()
+    )
 }
 
 private fun formatTimestamp(timestamp: Long): String {
