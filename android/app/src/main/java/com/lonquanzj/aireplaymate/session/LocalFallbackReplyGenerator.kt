@@ -201,10 +201,46 @@ object LocalFallbackReplyGenerator {
     private fun List<String>.adjustForPersona(persona: ReplyPersona): List<String> {
         return when (persona) {
             ReplyPersona.ROMANCE_MASTER -> map { it.replace("我先", "我倒想先").replace("收到，", "行，") }
+            ReplyPersona.FLIRT_EXPERT -> map { it.toFlirtExpertReply() }
             ReplyPersona.DOMINANT_CEO -> map { it.replace("可以啊", "可以").replace("好呀", "好").replace("慢慢", "按舒服的节奏") }
             ReplyPersona.MATURE_UNCLE -> map { it.replace("有点", "还挺").replace("晚点", "稍晚一点") }
             ReplyPersona.WARM_GENTLE -> this
             ReplyPersona.ZUOAN_MODE -> map { it.replace("可以啊", "可以啊").replace("不好意思", "").replace("麻烦", "").replace("谢谢", "") }
+            ReplyPersona.TIEBA_MODE -> map { it.toTiebaReply() }
+            ReplyPersona.LUXUN_MODE -> map { it.toLuxunReply() }
+        }
+    }
+
+    private fun String.toFlirtExpertReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先确认一下，别急着催我，给你准话这件事我还是挺认真的。"
+            contains("晚点") || contains("稍后") -> "晚点回你，但不是敷衍，是想把话说得更像我一点。"
+            contains("可以") || contains("没问题") -> "可以啊，刚好我也想看看，和你碰上会不会比聊天更有意思。"
+            contains("好奇") || contains("想继续") -> "你这么一说，我倒更想听下去了，别只说一半吊我胃口。"
+            contains("舒服") || contains("慢慢") -> "那就慢慢聊，反正有意思的人，不急着一次聊完。"
+            else -> "我懂你的意思，不过你这样说，我会忍不住想多问一句。"
+        }
+    }
+
+    private fun String.toTiebaReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "不是哥们，这事先别急，我看完给你个准话，别搁这儿先开香槟。"
+            contains("晚点") || contains("稍后") -> "绷不住了，晚点我看完再回你，现在硬聊容易把事聊歪。"
+            contains("可以") || contains("没问题") -> "可以，问题不大。有一说一，先按这个来，别整太复杂。"
+            contains("好奇") || contains("想继续") -> "这话说的，我还真有点想听你接着展开，别只放个钩子就跑。"
+            contains("舒服") || contains("慢慢") -> "有一说一，这节奏还行，先这么聊，别一上来就整高强度。"
+            else -> "不是哥们，你这句我先接住了，但咱得讲点道理，别把天聊死。"
+        }
+    }
+
+    private fun String.toLuxunReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "事情尚未看清，便急着要定论，像未点灯先称天亮。待我看完，再说准话。"
+            contains("晚点") || contains("稍后") -> "急话常像冷茶，端得快，入口却淡。稍后看明白了，再回你。"
+            contains("可以") || contains("没问题") -> "可以。若事情本来简单，倒不必再给它披一件复杂的外衣。"
+            contains("好奇") || contains("想继续") -> "这话像半扇门，既然开了，就不必又站在门外装作路过。"
+            contains("舒服") || contains("慢慢") -> "慢些也好。走得太急的人，常把路上的坑当成自己的方向。"
+            else -> "这话我听见了。若要继续说，最好先把道理放在桌上，别只把声响敲得很亮。"
         }
     }
 
