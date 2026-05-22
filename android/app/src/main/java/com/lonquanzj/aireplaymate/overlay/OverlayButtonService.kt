@@ -307,10 +307,19 @@ class OverlayButtonService : Service() {
         }
 
         panel.addView(
-            panelHeader("候选回复 · ${styleProfile.shortLabel}") {
-                OverlayDiagnosticsStore.onDone("用户关闭候选面板")
-                removeCandidatePanel()
-            },
+            panelHeader(
+                title = "候选回复 · ${styleProfile.shortLabel}",
+                actionLabel = "⟳ 重新生成",
+                onAction = {
+                    OverlayDiagnosticsStore.onDone("用户重新生成候选")
+                    removeCandidatePanel()
+                    triggerCandidateGeneration(styleProfile, draftText)
+                },
+                onClose = {
+                    OverlayDiagnosticsStore.onDone("用户关闭候选面板")
+                    removeCandidatePanel()
+                }
+            ),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -618,6 +627,8 @@ class OverlayButtonService : Service() {
 
     private fun panelHeader(
         title: String,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null,
         onClose: () -> Unit
     ): LinearLayout {
         return LinearLayout(this).apply {
@@ -632,6 +643,25 @@ class OverlayButtonService : Service() {
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
+            if (actionLabel != null && onAction != null) {
+                addView(
+                    TextView(this@OverlayButtonService).apply {
+                        text = actionLabel
+                        textSize = 12f
+                        gravity = Gravity.CENTER
+                        setTextColor(0xFF7A659C.toInt())
+                        setPadding(dp(8), dp(4), dp(8), dp(4))
+                        background = softPurpleCardBackground()
+                        setOnClickListener { onAction() }
+                    },
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        rightMargin = dp(8)
+                    }
+                )
+            }
             addView(
                 TextView(this@OverlayButtonService).apply {
                     text = "收起"
