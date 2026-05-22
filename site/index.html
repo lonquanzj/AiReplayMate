@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="AiReplayMate Android APK 下载页">
+  <title>AiReplayMate 下载</title>
+  <link rel="icon" href="assets/aichat-icon-v2-tech-1024.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-labelledby="title">
+      <div class="hero-copy">
+        <p class="eyebrow">Android APK</p>
+        <h1 id="title">AiReplayMate</h1>
+        <p class="lead">面向微信单聊场景的 AI 辅助回复工具，默认只生成和填入候选回复，不自动发送消息。</p>
+        <div class="actions" aria-label="下载操作">
+          <a id="downloadButton" class="primary-action" href="https://github.com/lonquanzj/AiReplayMate/releases/latest">下载最新版 APK</a>
+          <a class="secondary-action" href="https://github.com/lonquanzj/AiReplayMate">查看源码</a>
+        </div>
+        <p id="releaseMeta" class="release-meta">正在读取最新发布版本...</p>
+      </div>
+      <img class="app-icon" src="assets/aichat-icon-v2-tech-1024.png" alt="AiReplayMate 应用图标">
+    </section>
+
+    <section class="status-grid" aria-label="项目能力">
+      <article>
+        <h2>辅助边界</h2>
+        <p>生成候选回复并尝试填入输入框，最终发送动作保留给用户确认。</p>
+      </article>
+      <article>
+        <h2>上下文提取</h2>
+        <p>优先使用 Accessibility 获取聊天上下文，不足时回退到截图 OCR。</p>
+      </article>
+      <article>
+        <h2>本地兜底</h2>
+        <p>LLM 配置缺失或网络失败时，仍提供可用的本地候选回复。</p>
+      </article>
+    </section>
+
+    <section class="notes" aria-label="安装提示">
+      <h2>安装提示</h2>
+      <p>下载后在 Android 设备上打开 APK。若系统提示风险或未知来源，请确认 APK 来自本项目 GitHub Releases 后再继续安装。</p>
+      <p>Release 包不包含任何 API Key。使用 LLM 能力前，需要在应用内配置兼容 OpenAI 的 Base URL、API Key 和模型名。</p>
+    </section>
+  </main>
+
+  <script src="release.js"></script>
+</body>
+</html>
