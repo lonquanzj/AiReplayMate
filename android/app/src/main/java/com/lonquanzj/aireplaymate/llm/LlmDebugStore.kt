@@ -90,7 +90,7 @@ object LlmDebugStore {
             phase = LlmDebugPhase.REQUESTING,
             baseUrl = baseUrl,
             model = model,
-            requestPreview = requestPreview.compactPreview(),
+            requestPreview = requestPreview.compactForDisplay(),
             recoveryHint = "正在请求模型，请稍等；若长时间无响应，优先检查网络或代理。",
             updatedAtMillis = System.currentTimeMillis(),
             history = current.history
@@ -144,7 +144,11 @@ object LlmDebugStore {
     }
 
     private fun String.compactPreview(): String {
-        return replace(Regex("\\s+"), " ").trim().take(MAX_PREVIEW_LENGTH)
+        return compactForDisplay().take(MAX_PREVIEW_LENGTH)
+    }
+
+    private fun String.compactForDisplay(): String {
+        return replace(Regex("\\s+"), " ").trim()
     }
 
     private fun LlmDebugState.toHistoryEntry(summary: String): LlmDebugHistoryEntry {
