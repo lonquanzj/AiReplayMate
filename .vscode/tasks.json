@@ -57,7 +57,7 @@
       "problemMatcher": []
     },
     {
-      "label": "device smoke: activity probe",
+      "label": "device diagnostic: activity launch probe (diagnostic only)",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -70,6 +70,32 @@
         "-SkipInstall",
         "-InstrumentTimeoutSeconds",
         "60"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device diagnostic: ui entry probe (diagnostic only)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-TestClass",
+        "com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points",
+        "-SkipInstall",
+        "-InstrumentTimeoutSeconds",
+        "90"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

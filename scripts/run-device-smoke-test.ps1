@@ -227,13 +227,28 @@ $failed = $false
 $scriptError = ''
 $miuiLaunchBlockDetected = $false
 $miuiLaunchBlockSummary = ''
-$selectedTests = if ([string]::IsNullOrWhiteSpace($TestClass)) {
-    @($TestClasses | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-} else {
+# Normalize test selectors from either array input or comma-joined text.
+$selectedTestsRaw = if ([string]::IsNullOrWhiteSpace($TestClass)) {
+    @($TestClasses)
+}
+else {
     @($TestClass)
 }
 
-if ($selectedTests.Count -eq 0) {
+$selectedTests = @(
+    $selectedTestsRaw |
+        ForEach-Object {
+            if ($null -eq $_) { return }
+            foreach ($chunk in ($_.ToString() -split ',')) {
+                $normalized = $chunk.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+                    $normalized
+                }
+            }
+        }
+)
+
+if ($selectedTests.Length -eq 0) {
     throw 'At least one test must be provided via -TestClasses or -TestClass.'
 }
 
@@ -284,8 +299,9 @@ try {
     }
 
     Write-Host "[5/5] Run instrumentation test selection"
-    if ($joinedTestClasses -match 'MainActivitySmokeTest|MainActivityLaunchProbeTest') {
-        Write-Warning 'This test launches MainActivity under instrumentation. On some MIUI devices this can be blocked as a background activity start even when the app opens normally by hand.'
+    if ($joinedTestClasses -match 'MainActivityUiEntryTest|MainActivityLaunchProbeTest') {
+        Write-Warning 'Diagnostic-only Activity tests selected. These probes launch MainActivity under instrumentation and can be blocked by OEM background-activity policies on MIUI devices.'
+        Write-Warning 'Do not use these Activity probes as merge gate; prefer default no-Activity DeviceRegressionTest suite for stable pass/fail signal.'
     }
     $runner = "$TestPackage/androidx.test.runner.AndroidJUnitRunner"
     & $adb shell am force-stop $AppPackage | Out-Null
@@ -379,7 +395,13 @@ finally {
 
     $instrumentText = Read-TextFileWithRetry -Path $instrumentLog
     $logcatText = Read-TextFileWithRetry -Path $logcatLog
-    $testResults = Parse-InstrumentationTestResults -InstrumentText $instrumentText
+    $testResults = @()
+    if (-not [string]::IsNullOrWhiteSpace($instrumentText)) {
+        $parsedResults = Parse-InstrumentationTestResults -InstrumentText $instrumentText
+        if ($null -ne $parsedResults) {
+            $testResults = @($parsedResults)
+        }
+    }
     $passedTestNames = @($testResults | Where-Object { $_.status -eq 'passed' } | ForEach-Object { $_.name })
     $failedTestNames = @($testResults | Where-Object { $_.status -eq 'failed' } | ForEach-Object { $_.name })
     $passed = $instrumentText -match 'INSTRUMENTATION_CODE:\s*-1'

@@ -58,6 +58,18 @@
 - 真实 LLM 连通
 - 候选展示与真实填入
 
+执行入口（Diagnostic Only，不作为 merge gate）：
+
+- VS Code 任务：`device diagnostic: ui entry probe (diagnostic only)`
+- VS Code 任务：`device diagnostic: activity launch probe (diagnostic only)`
+- 脚本命令：`scripts/run-device-smoke-test.ps1 -TestClass com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points`
+- 脚本命令：`scripts/run-device-smoke-test.ps1 -TestClass com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario`
+
+推荐执行顺序：
+
+1. 先跑 UI entry probe，确认阶段化入口日志
+2. 再跑 activity launch probe，确认是否命中 MIUI / 系统后台启动限制
+
 ### 层 3：人工冒烟
 
 用途：在目标自用手机上确认“今天还能不能顺手使用”。

@@ -182,9 +182,10 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 
 也可以直接通过 VS Code 任务运行：
 
-- `device smoke: stable suite`：默认六条稳定用例
+- `device smoke: stable suite`：默认七条稳定用例（稳定门禁推荐）
 - `device smoke: single test`：弹出输入框后跑指定单用例
-- `device smoke: activity probe`：快速复现 `MainActivity` 启动探针与 MIUI 限制告警
+- `device diagnostic: activity launch probe (diagnostic only)`：快速复现 `MainActivity` 启动探针与 MIUI 限制告警
+- `device diagnostic: ui entry probe (diagnostic only)`：快速复现 UI 入口探针并输出阶段化诊断日志
 
 默认执行七条稳定用例：
 
@@ -226,7 +227,7 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 
 | 用例 | 覆盖点 |
 | --- | --- |
-| `device_baseline_persistence_and_entrypoint_are_healthy` | 入口 intent、Smoke 标记、基础持久化、诊断快照落盘 |
+| `device_baseline_persistence_and_entrypoint_are_healthy` | 入口 intent、基础持久化、诊断快照落盘 |
 | `prompt_builder_respects_policy_sanitization_and_mode_rules` | PromptBuilder 的上下文策略、参数归一化、润色模式与安全边界 |
 | `local_fallback_generator_produces_ranked_persona_aware_candidates` | 本地兜底候选生成、角色差异、Playbook/Polish 分支 |
 | `llm_debug_store_tracks_state_transitions_and_hints` | LLM 诊断状态流、错误分类、恢复提示、history 上限 |
@@ -243,7 +244,36 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 说明：
 
 - 默认真机回归不再拉起 `MainActivity`，以规避部分 MIUI 机型对 instrumentation 后台启动 Activity 的限制。
-- `MainActivitySmokeTest` 仍可作为补充诊断用例手动运行，但不再作为默认 smoke 入口。
+- `MainActivityUiEntryTest` 与 `MainActivityLaunchProbeTest` 都是 Diagnostic Only，用于补充定位，不作为默认 smoke 入口或合并门禁。
+
+### 诊断用例运行命令（Diagnostic Only）
+
+当你需要复现 MIUI 限制或补采 Activity 入口证据时，建议按下面顺序执行。
+
+推荐顺序：
+
+1. 先跑 UI entry 探针，确认页面入口阶段信息
+2. 再跑 activity launch 探针，确认是否命中系统策略拦截
+
+命令示例：
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;C:\Users\lonqu\AppData\Local\Android\Sdk\platform-tools;$env:Path"
+.\scripts\run-device-smoke-test.ps1 -TestClass 'com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points' -SkipInstall -InstrumentTimeoutSeconds 90
+```
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;C:\Users\lonqu\AppData\Local\Android\Sdk\platform-tools;$env:Path"
+.\scripts\run-device-smoke-test.ps1 -TestClass 'com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario' -SkipInstall -InstrumentTimeoutSeconds 60
+```
+
+说明：
+
+- 两条命令都是诊断入口，不作为 merge gate。
+- 每次执行都会在 `android/app/build/reports/androidTests/device-smoke/<timestamp>/` 下产出 install、instrument、logcat 与 summary 文件。
+- 若需要完整重装链路验证，可去掉 `-SkipInstall`。
 
 ### 安装与验证建议
 
