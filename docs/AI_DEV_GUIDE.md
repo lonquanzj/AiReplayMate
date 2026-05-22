@@ -1,4 +1,4 @@
-# AI 开发指南 — AiReplayMate
+﻿# AI 开发指南 — AiReplayMate
 
 > 这份文档面向“后续继续接需求的 AI 代理”。目标不是重复产品文档，而是让 AI 在最少上下文下，快速定位代码入口、理解约束，并按正确顺序完成改动。
 
@@ -6,21 +6,22 @@
 
 建议阅读顺序：
 
-1. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
+1. [CURRENT_STATUS.md](CURRENT_STATUS.md)
    先确认仓库现在真实做到哪里，不要把项目误判成空骨架。
-2. [PRD.md](/home/percy/AiReplayMate/docs/PRD.md)
+2. [PRD.md](PRD.md)
    看产品边界，尤其是 MVP 范围和非目标。
-3. [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md)
+3. [ENGINEERING_SPEC.md](ENGINEERING_SPEC.md)
    看架构、模块职责、状态机、接口约束。
-4. [DEV_SETUP.md](/home/percy/AiReplayMate/docs/DEV_SETUP.md)
+4. [DEV_SETUP.md](DEV_SETUP.md)
    看如何构建、安装、验证真机链路。
 5. 当前任务涉及到的具体代码文件
 
 如果上下文预算很紧，至少先读：
 
-1. `CURRENT_STATUS.md`
-2. `PRD.md`
-3. 本文件
+1. `AGENTS.md`
+2. `CURRENT_STATUS.md`
+3. `PRD.md`
+4. 本文件
 
 ## 2. 信息优先级
 
@@ -72,19 +73,19 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 最常用入口：
 
-- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
   首页配置、调试面板、诊断 UI
-- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
   悬浮气泡、进度面板、候选面板、风格菜单
-- [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
+- [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
   真实会话执行器，负责把上下文整理、OCR、LLM、本地兜底串起来
-- [PromptBuilder.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:1)
+- [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:1)
   系统提示词、用户提示词、模式分支
-- [ReplyStyleModels.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:1)
+- [ReplyStyleModels.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:1)
   回复角色、话术宝典、润色目标的核心模型
-- [ReplyStyleSettingsStore.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/settings/ReplyStyleSettingsStore.kt:1)
+- [ReplyStyleSettingsStore.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/settings/ReplyStyleSettingsStore.kt:1)
   风格配置持久化
-- [LocalFallbackReplyGenerator.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:1)
+- [LocalFallbackReplyGenerator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:1)
   LLM 不可用时的本地候选兜底
 
 ## 5. 改需求时先判断属于哪类
@@ -117,15 +118,15 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 最少需要检查这些位置：
 
-1. [ReplyStyleModels.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:14)
+1. [ReplyStyleModels.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:14)
    在 `ReplyPersona` 增加新枚举，补 `id`、`label`、`promptGuide`
-2. [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:871)
+2. [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:871)
    首页角色选择 UI 会基于 `ReplyPersona.entries` 自动渲染，通常不需要单独写死
-3. [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:358)
+3. [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:358)
    长按气泡菜单会基于 `ReplyPersona.entries` 自动展示，通常不用单独补 UI
-4. [PromptBuilder.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:26)
+4. [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:26)
    确认系统提示词里角色描述是否已经足够，不够就补风格约束
-5. [LocalFallbackReplyGenerator.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:152)
+5. [LocalFallbackReplyGenerator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:152)
    在 `adjustForPersona` 或具体候选生成逻辑里补角色差异，否则 LLM 挂掉时新角色会退化得很像默认角色
 6. `README.md` / `docs/CURRENT_STATUS.md` / 本文件
    如果属于对外能力变更，文档也要同步
@@ -144,15 +145,15 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 最少需要检查这些位置：
 
-1. [ReplyStyleModels.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:95)
+1. [ReplyStyleModels.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:95)
    在 `ReplyStyleCatalog.scenes` 中增加 `ReplyPlaybookScene`
-2. [PromptBuilder.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:74)
+2. [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:74)
    `buildPlaybookUserPrompt` 通常会自动读取场景描述；如果新场景需要特殊约束，再加分支
-3. [LocalFallbackReplyGenerator.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:41)
+3. [LocalFallbackReplyGenerator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:41)
    在 `buildPlaybookTexts` 里新增该 `sceneId` 的本地兜底话术
-4. [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:871)
+4. [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:871)
    首页场景选择会基于 `ReplyStyleCatalog.scenes` 自动展示
-5. [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:358)
+5. [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:358)
    长按菜单也会基于 `ReplyStyleCatalog.scenes` 自动展示
 
 注意：
@@ -169,15 +170,15 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 最少需要检查这些位置：
 
-1. [ReplyStyleModels.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:49)
+1. [ReplyStyleModels.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/ReplyStyleModels.kt:49)
    在 `PolishGoal` 里增加新枚举
-2. [PromptBuilder.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:86)
+2. [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:86)
    `buildPolishUserPrompt` 会自动读取 `polishGoal`，特殊目标可补单独约束
-3. [LocalFallbackReplyGenerator.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:93)
+3. [LocalFallbackReplyGenerator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:93)
    在 `buildPolishTexts` 里增加该目标的本地兜底版本
-4. [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:919)
+4. [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:919)
    首页会基于 `PolishGoal.entries` 自动渲染
-5. [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:395)
+5. [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:395)
    长按菜单会自动基于 `PolishGoal.entries` 展示
 
 注意：
@@ -198,11 +199,11 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 最少需要检查这些位置：
 
 1. `prompt` 下的 `AppSettings` 数据模型
-2. [AppSettingsStore.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/settings/AppSettingsStore.kt:1)
+2. [AppSettingsStore.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/settings/AppSettingsStore.kt:1)
    补持久化读写
-3. [AppSettingsValidator.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/settings/AppSettingsValidator.kt:1)
+3. [AppSettingsValidator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/settings/AppSettingsValidator.kt:1)
    补校验和 warning
-4. [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:772)
+4. [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:772)
    首页设置 UI 和交互
 5. `llm/` 下真实网关
    确认该字段是否真正进请求体
@@ -226,7 +227,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 主入口：
 
-- [PromptBuilder.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:11)
+- [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:11)
 
 建议顺序：
 
@@ -245,7 +246,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 UI 相关需求大多集中在：
 
-- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
 
 典型可改内容：
 
@@ -273,7 +274,7 @@ UI 相关需求大多集中在：
 - `ocr/MlKitChineseOcrEngine.kt`
 - `ocr/OcrTextPostProcessor.kt`
 - `ocr/OcrDebugStore.kt`
-- [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
+- [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
 
 建议顺序：
 
@@ -371,10 +372,13 @@ UI 相关需求大多集中在：
 
 常用构建命令：
 
-```bash
-cd android
-./gradlew :app:assembleDebug
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat :app:assembleDebug
 ```
+
+Gradle 根工程是仓库根目录，模块路径是 `:app`，物理目录是 `android/app`。不要使用 `:android:app:*`。
 
 ## 8. AI 开发时最容易漏的文件
 

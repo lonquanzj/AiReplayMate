@@ -17,9 +17,9 @@
 
 如果你要先确认整体进度，建议优先看：
 
-1. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
-2. [README.md](/home/percy/AiReplayMate/README.md)
-3. [AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)
+1. [CURRENT_STATUS.md](CURRENT_STATUS.md)
+2. [README.md](../README.md)
+3. [AI_DEV_GUIDE.md](AI_DEV_GUIDE.md)
 
 ## 2. 环境要求
 
@@ -27,6 +27,9 @@
 
 - Android Studio 近两年稳定版
 - JDK `17`
+- 命令行构建时设置 `JAVA_HOME`
+  - 当前 Windows 环境可用：`C:\Program Files\Android\Android Studio\jbr`
+  - 备选本机 JDK：`C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot`
 - Android SDK：
   - `compileSdk = 35`
   - `targetSdk = 35`
@@ -38,48 +41,49 @@
 
 常用目录：
 
-- 仓库根目录：`/home/percy/AiReplayMate`
-- Android 工程目录：`/home/percy/AiReplayMate/android`
-- 主模块：`/home/percy/AiReplayMate/android/app`
+- 仓库根目录：`repository root`
+- Android App 目录：`android/app`
+- 主模块 Gradle 路径：`:app`
 
 关键文件：
 
-- [android/app/build.gradle.kts](/home/percy/AiReplayMate/android/app/build.gradle.kts:1)
-- [AndroidManifest.xml](/home/percy/AiReplayMate/android/app/src/main/AndroidManifest.xml:1)
-- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
-- [ReplyAccessibilityService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
-- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- [android/app/build.gradle.kts](../android/app/build.gradle.kts:1)
+- [AndroidManifest.xml](../android/app/src/main/AndroidManifest.xml:1)
+- [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [ReplyAccessibilityService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
+- [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
 
 ## 4. 构建方式
 
-构建约束：`android/` 是唯一 Gradle 工程根目录。仓库根目录的 `gradlew` 仅用于转发到 `android/gradlew`。
+构建约束：仓库根目录是 Gradle 工程根目录。`settings.gradle.kts` 中声明 `include(":app")`，并把 `:app` 映射到物理目录 `android/app`。
+
+因此 Gradle 任务路径应使用 `:app:*`，不要使用 `:android:app:*`。
 
 ### Android Studio
 
-1. 打开 `android/` 目录作为工程根目录
+1. 打开仓库根目录作为工程根目录
 2. 等待 Gradle Sync 完成
 3. 运行 `app` 模块的 `debug`
 
 ### 命令行
 
-在 `android/` 目录执行：
+在仓库根目录执行：
 
-```bash
-./gradlew :app:assembleDebug
+```powershell
+.\gradlew.bat :app:assembleDebug
 ```
 
-如果在仓库根目录执行，请使用：
+如果当前 shell 没有设置 `JAVA_HOME`，先执行：
 
-```bash
-./gradlew :app:assembleDebug
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
 ```
-
-上述命令会被转发到 `android/gradlew`，用于保证入口一致性。
 
 如果设备已连接，也可以安装：
 
-```bash
-./gradlew :app:installDebug
+```powershell
+.\gradlew.bat :app:installDebug
 ```
 
 ## 5. 首次真机验证顺序
@@ -122,7 +126,7 @@
 - 悬浮窗权限
 - MediaProjection 截图授权
 
-相关声明见 [AndroidManifest.xml](/home/percy/AiReplayMate/android/app/src/main/AndroidManifest.xml:1)。
+相关声明见 [AndroidManifest.xml](../android/app/src/main/AndroidManifest.xml:1)。
 
 ## 8. 真机调试建议
 
@@ -190,6 +194,6 @@ adb logcat | grep AiReplayMate
 
 如果是 AI 代理继续开发，建议优先看：
 
-1. [AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)
-2. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
-3. [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md)
+1. [AI_DEV_GUIDE.md](AI_DEV_GUIDE.md)
+2. [CURRENT_STATUS.md](CURRENT_STATUS.md)
+3. [ENGINEERING_SPEC.md](ENGINEERING_SPEC.md)

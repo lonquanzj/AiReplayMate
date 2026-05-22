@@ -1,25 +1,25 @@
 # 文档索引 — AiReplayMate
 
-如果主要是给 AI 代理持续开发，建议先看 [AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)。
+如果主要是给 AI 代理持续开发，建议先看 [AI_DEV_GUIDE.md](AI_DEV_GUIDE.md)。
 
 当前建议只把下面 4 份文档视为主入口：
 
-1. [AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)
+1. [AI_DEV_GUIDE.md](AI_DEV_GUIDE.md)
    AI 阅读顺序、文档优先级、代码入口、常见需求改动路径与验证清单。
-2. [PRD.md](/home/percy/AiReplayMate/docs/PRD.md)
+2. [PRD.md](PRD.md)
    产品目标、范围、非目标、成功指标。
-3. [ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md)
+3. [ENGINEERING_SPEC.md](ENGINEERING_SPEC.md)
    系统分层、模块职责、执行管道、数据模型、状态机、接口契约、技术选型与风险。
-4. [DELIVERY_PLAN.md](/home/percy/AiReplayMate/docs/DELIVERY_PLAN.md)
+4. [DELIVERY_PLAN.md](DELIVERY_PLAN.md)
    版本路线、任务拆解、依赖关系、排期建议。
 
 补充文档：
 
-5. [DEV_SETUP.md](/home/percy/AiReplayMate/docs/DEV_SETUP.md)
+5. [DEV_SETUP.md](DEV_SETUP.md)
    开发环境、构建方式、真机调试和当前真实可验证链路。
-6. [CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
+6. [CURRENT_STATUS.md](CURRENT_STATUS.md)
    当前仓库真实进度、Now / Next / Later、近期建议。
-7. [CODE_REVIEW.md](/home/percy/AiReplayMate/docs/CODE_REVIEW.md)
+7. [CODE_REVIEW.md](CODE_REVIEW.md)
    面向当前阶段的 Code Review 基线，覆盖 MVP 边界、架构分层、微信适配、自动填入、安全与验证要求。
 
 推荐阅读顺序：

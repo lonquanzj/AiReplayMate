@@ -40,7 +40,7 @@
 - 已有 LLM / OCR / Overlay 三类诊断与摘要日志
 - 已补充一套紫色风格应用图标和更轻量的悬浮 UI 样式
 
-更具体的当前进度见 [docs/CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)。
+更具体的当前进度见 [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)。
 
 ## 功能说明
 
@@ -123,10 +123,10 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 关键入口文件：
 
-- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
-- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
-- [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
-- [ReplyAccessibilityService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
+- [MainActivity.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [OverlayButtonService.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- [RealReplySessionRunner.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
+- [ReplyAccessibilityService.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
 
 ## 技术栈
 
@@ -152,6 +152,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 - Android Studio 新版本
 - JDK 17
+- 命令行构建时设置 `JAVA_HOME`，当前 Windows 环境可用 `C:\Program Files\Android\Android Studio\jbr`
 - 一台可调试的 Android 真机
 - 可用的 OpenAI 兼容接口，或至少接受本地兜底效果
 
@@ -161,9 +162,13 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 在仓库根目录执行：
 
-```bash
-./gradlew :app:assembleDebug
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat :app:assembleDebug
 ```
+
+Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 `:android:app:*`。
 
 ### 安装与验证建议
 
@@ -208,11 +213,11 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 如果你准备继续开发，建议阅读顺序如下：
 
-1. [docs/README.md](/home/percy/AiReplayMate/docs/README.md)
-2. [docs/CURRENT_STATUS.md](/home/percy/AiReplayMate/docs/CURRENT_STATUS.md)
-3. [docs/PRD.md](/home/percy/AiReplayMate/docs/PRD.md)
-4. [docs/ENGINEERING_SPEC.md](/home/percy/AiReplayMate/docs/ENGINEERING_SPEC.md)
-5. [docs/DELIVERY_PLAN.md](/home/percy/AiReplayMate/docs/DELIVERY_PLAN.md)
-6. [docs/DEV_SETUP.md](/home/percy/AiReplayMate/docs/DEV_SETUP.md)
+1. [docs/README.md](docs/README.md)
+2. [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)
+3. [docs/PRD.md](docs/PRD.md)
+4. [docs/ENGINEERING_SPEC.md](docs/ENGINEERING_SPEC.md)
+5. [docs/DELIVERY_PLAN.md](docs/DELIVERY_PLAN.md)
+6. [docs/DEV_SETUP.md](docs/DEV_SETUP.md)
 
-如果是给 AI 代理继续接力开发，优先看 [docs/AI_DEV_GUIDE.md](/home/percy/AiReplayMate/docs/AI_DEV_GUIDE.md)。
+如果是给 AI 代理继续接力开发，优先看 [docs/AI_DEV_GUIDE.md](docs/AI_DEV_GUIDE.md)。

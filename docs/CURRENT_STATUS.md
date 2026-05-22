@@ -29,7 +29,7 @@
 8. 通过 `OverlayButtonService` 展示候选、诊断和填入入口
 9. 通过 `AccessibilityActionBridge` 执行最小 Autofill 尝试
 
-这条链路由 [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17) 统一承接。
+这条链路由 [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17) 统一承接。
 
 ### 首页能力
 
@@ -45,7 +45,7 @@
 - 最近摘要级诊断日志查看、复制和清空
 - Demo 会话状态机与预览区域
 
-首页入口位于 [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)。
+首页入口位于 [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)。
 
 ### 悬浮窗与回复交互
 
@@ -59,7 +59,7 @@
 - 用户选择候选后尝试填入微信输入框
 - 已通过服务内锁避免并发重复触发
 
-当前悬浮交互入口位于 [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)。
+当前悬浮交互入口位于 [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)。
 
 ### LLM 与本地兜底
 
@@ -123,10 +123,10 @@ OCR 目前已经接入真实识别，不再只是留接口：
 
 当前的核心代码入口：
 
-- [MainActivity.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
-- [ReplyAccessibilityService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
-- [RealReplySessionRunner.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
-- [OverlayButtonService.kt](/home/percy/AiReplayMate/android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [ReplyAccessibilityService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
+- [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
+- [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
 
 ## 4. 已完成事项
 
