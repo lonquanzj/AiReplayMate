@@ -52,4 +52,21 @@ class OpenAiCompatibleRequestMapperTest {
         assertEquals("user", messages.getJSONObject(1).getString("role"))
         assertEquals("user context", messages.getJSONObject(1).getString("content"))
     }
+
+    @Test
+    fun toOpenAiJson_rounds_temperature_to_one_decimal_place() {
+        val json = OpenAiCompatibleRequestMapper.toOpenAiJson(
+            request = LlmRequest(
+                systemPrompt = "system rules",
+                userPrompt = "user context",
+                temperature = 0.699999988079071f,
+                maxTokens = 180,
+                candidateCount = 3
+            ),
+            model = "gpt-test"
+        )
+
+        assertEquals("{\"model\":\"gpt-test\",\"temperature\":0.7", json.toString().take(39))
+        assertEquals(0.7, json.getDouble("temperature"), 0.0)
+    }
 }

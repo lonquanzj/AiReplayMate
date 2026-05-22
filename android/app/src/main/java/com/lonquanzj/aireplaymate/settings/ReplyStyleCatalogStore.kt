@@ -33,6 +33,17 @@ object ReplyStyleCatalogStore {
         BackupManager(context.applicationContext).dataChanged()
     }
 
+    fun defaultCatalog(): ReplyStyleCatalogState = ReplyStyleCatalog.defaultCatalogState
+
+    fun encodeToJson(catalog: ReplyStyleCatalogState): JSONObject {
+        return JSONObject(encodeCatalog(catalog))
+    }
+
+    fun decodeFromJson(root: JSONObject): ReplyStyleCatalogState {
+        return decodeCatalog(root.toString())?.mergeWithCurrentBuiltins()
+            ?: ReplyStyleCatalog.defaultCatalogState
+    }
+
     fun resetBuiltins(
         context: Context,
         current: ReplyStyleCatalogState = load(context)

@@ -2,41 +2,109 @@ package com.lonquanzj.aireplaymate.settings
 
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.ContextSendPolicy
+import com.lonquanzj.aireplaymate.prompt.LlmSampling
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import org.json.JSONObject
+
+data class ExportedAppConfig(
+    val appSettings: AppSettings,
+    val replyStyleProfile: ReplyStyleProfile,
+    val replyStyleCatalog: ReplyStyleCatalogState
+)
 
 object AppSettingsTransfer {
     private const val VERSION = 1
 
     fun encode(settings: AppSettings): String {
+        return encodeAppSettings(settings).put("version", VERSION).toString(2)
+    }
+
+    fun encode(
+        settings: AppSettings,
+        replyStyleProfile: ReplyStyleProfile,
+        replyStyleCatalog: ReplyStyleCatalogState
+    ): String {
         return JSONObject()
             .put("version", VERSION)
-            .put("apiKey", settings.apiKey)
-            .put("baseUrl", settings.baseUrl)
-            .put("model", settings.model)
-            .put("temperature", settings.temperature.toDouble())
-            .put("maxTokens", settings.maxTokens)
-            .put("contextSendPolicy", settings.contextSendPolicy.name)
+            .put("llm", encodeAppSettings(settings))
+            .put("replyStyle", encodeReplyStyle(replyStyleProfile))
+            .put("replyStyleCatalog", ReplyStyleCatalogStore.encodeToJson(replyStyleCatalog))
             .toString(2)
     }
 
     fun decode(raw: String): Result<AppSettings> {
         return runCatching {
             val root = JSONObject(raw)
-            val defaults = AppSettings()
-            AppSettings(
-                apiKey = root.optString("apiKey", defaults.apiKey),
-                baseUrl = root.optString("baseUrl", defaults.baseUrl).ifBlank { defaults.baseUrl },
-                model = root.optString("model", defaults.model).ifBlank { defaults.model },
-                temperature = root.optDouble("temperature", defaults.temperature.toDouble())
-                    .toFloat()
-                    .coerceIn(0f, 2f),
-                maxTokens = root.optInt("maxTokens", defaults.maxTokens).coerceIn(120, 2000),
-                customSystemPrompt = defaults.customSystemPrompt,
-                candidateCount = defaults.candidateCount,
-                contextSendPolicy = root.optString("contextSendPolicy", defaults.contextSendPolicy.name)
-                    .toContextSendPolicy(defaults.contextSendPolicy)
+            decodeAppSettings(root.optJSONObject("llm") ?: root)
+        }
+    }
+
+    fun decodeFull(raw: String): Result<ExportedAppConfig> {
+        return runCatching {
+            val root = JSONObject(raw)
+            val settings = decodeAppSettings(root.optJSONObject("llm") ?: root)
+            val catalog = root.optJSONObject("replyStyleCatalog")
+                ?.let { ReplyStyleCatalogStore.decodeFromJson(it) }
+                ?: ReplyStyleCatalogStore.defaultCatalog()
+            val profile = root.optJSONObject("replyStyle")
+                ?.let { decodeReplyStyle(it, catalog) }
+                ?: ReplyStyleSettingsStore.defaultProfile(catalog)
+            ExportedAppConfig(
+                appSettings = settings,
+                replyStyleProfile = profile,
+                replyStyleCatalog = catalog
             )
         }
+    }
+
+    private fun encodeAppSettings(settings: AppSettings): JSONObject {
+        return JSONObject()
+            .put("apiKey", settings.apiKey)
+            .put("baseUrl", settings.baseUrl)
+            .put("model", settings.model)
+            .put("temperature", LlmSampling.normalizedTemperatureDouble(settings.temperature))
+            .put("maxTokens", settings.maxTokens)
+            .put("contextSendPolicy", settings.contextSendPolicy.name)
+    }
+
+    private fun decodeAppSettings(root: JSONObject): AppSettings {
+        val defaults = AppSettings()
+        return AppSettings(
+            apiKey = root.optString("apiKey", defaults.apiKey),
+            baseUrl = root.optString("baseUrl", defaults.baseUrl).ifBlank { defaults.baseUrl },
+            model = root.optString("model", defaults.model).ifBlank { defaults.model },
+            temperature = LlmSampling.normalizeTemperature(
+                root.optDouble("temperature", defaults.temperature.toDouble()).toFloat()
+            ),
+            maxTokens = root.optInt("maxTokens", defaults.maxTokens).coerceIn(120, 2000),
+            customSystemPrompt = defaults.customSystemPrompt,
+            candidateCount = defaults.candidateCount,
+            contextSendPolicy = root.optString("contextSendPolicy", defaults.contextSendPolicy.name)
+                .toContextSendPolicy(defaults.contextSendPolicy)
+        )
+    }
+
+    private fun encodeReplyStyle(profile: ReplyStyleProfile): JSONObject {
+        return JSONObject()
+            .put("mode", profile.mode.id)
+            .put("persona", profile.personaConfig.id)
+            .put("scene", profile.playbookConfig.id)
+            .put("polishGoal", profile.polishGoalConfig.id)
+    }
+
+    private fun decodeReplyStyle(root: JSONObject, catalog: ReplyStyleCatalogState): ReplyStyleProfile {
+        return ReplyStyleSettingsStore.profileFromIds(
+            modeId = root.optNullableString("mode"),
+            personaId = root.optNullableString("persona"),
+            sceneId = root.optNullableString("scene"),
+            polishGoalId = root.optNullableString("polishGoal"),
+            catalog = catalog
+        )
+    }
+
+    private fun JSONObject.optNullableString(name: String): String? {
+        return optString(name).takeIf { it.isNotBlank() }
     }
 
     private fun String.toContextSendPolicy(default: ContextSendPolicy): ContextSendPolicy {

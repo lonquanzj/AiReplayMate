@@ -182,17 +182,27 @@ private fun MainScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var replyStyleProfile by remember(context) {
+        mutableStateOf(ReplyStyleSettingsStore.load(context))
+    }
+    var replyStyleCatalog by remember(context) {
+        mutableStateOf(ReplyStyleCatalogStore.load(context))
+    }
     val exportSettingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         runCatching {
-            val payload = AppSettingsTransfer.encode(appSettings)
+            val payload = AppSettingsTransfer.encode(
+                settings = appSettings,
+                replyStyleProfile = replyStyleProfile,
+                replyStyleCatalog = replyStyleCatalog
+            )
             context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
                 it.write(payload)
             } ?: error("Unable to open export file")
         }.onSuccess {
-            Toast.makeText(context, "LLM 配置已导出", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "配置已导出", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
             Toast.makeText(context, "导出失败：${error.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
         }
@@ -205,20 +215,19 @@ private fun MainScreen(
             val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
                 it.readText()
             } ?: error("Unable to open import file")
-            AppSettingsTransfer.decode(raw).getOrThrow()
-        }.onSuccess { importedSettings ->
-            appSettings = importedSettings
-            saveAppSettings(importedSettings)
-            Toast.makeText(context, "LLM 配置已导入", Toast.LENGTH_SHORT).show()
+            AppSettingsTransfer.decodeFull(raw).getOrThrow()
+        }.onSuccess { importedConfig ->
+            appSettings = importedConfig.appSettings
+            saveAppSettings(importedConfig.appSettings)
+            replyStyleCatalog = importedConfig.replyStyleCatalog
+            ReplyStyleCatalogStore.save(context, importedConfig.replyStyleCatalog)
+            replyStyleProfile = importedConfig.replyStyleProfile
+                .withResolvedCatalog(importedConfig.replyStyleCatalog)
+            ReplyStyleSettingsStore.save(context, replyStyleProfile)
+            Toast.makeText(context, "配置已导入", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
             Toast.makeText(context, "导入失败：${error.message ?: "配置文件无效"}", Toast.LENGTH_LONG).show()
         }
-    }
-    var replyStyleProfile by remember(context) {
-        mutableStateOf(ReplyStyleSettingsStore.load(context))
-    }
-    var replyStyleCatalog by remember(context) {
-        mutableStateOf(ReplyStyleCatalogStore.load(context))
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
@@ -330,7 +339,7 @@ private fun MainScreen(
                                     importSettingsLauncher.launch(arrayOf("application/json", "text/*"))
                                 },
                                 onExportSettings = {
-                                    exportSettingsLauncher.launch("aireplaymate-llm-settings.json")
+                                    exportSettingsLauncher.launch("aireplaymate-config.json")
                                 }
                             )
                         }

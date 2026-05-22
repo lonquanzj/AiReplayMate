@@ -5,6 +5,7 @@ import android.content.Context
 import com.lonquanzj.aireplaymate.prompt.PolishGoal
 import com.lonquanzj.aireplaymate.prompt.ReplyPersona
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 
@@ -39,5 +40,31 @@ object ReplyStyleSettingsStore {
             .putString(KEY_POLISH_GOAL, profile.polishGoalConfig.id)
             .apply()
         BackupManager(context.applicationContext).dataChanged()
+    }
+
+    fun defaultProfile(catalog: ReplyStyleCatalogState): ReplyStyleProfile {
+        return profileFromIds(
+            modeId = ReplyStyleMode.QUICK_REPLY.id,
+            personaId = ReplyPersona.default.id,
+            sceneId = ReplyStyleCatalog.defaultScene.sceneId,
+            polishGoalId = PolishGoal.default.id,
+            catalog = catalog
+        )
+    }
+
+    fun profileFromIds(
+        modeId: String?,
+        personaId: String?,
+        sceneId: String?,
+        polishGoalId: String?,
+        catalog: ReplyStyleCatalogState
+    ): ReplyStyleProfile {
+        return ReplyStyleCatalog.profile(
+            modeId = modeId ?: ReplyStyleMode.QUICK_REPLY.id,
+            personaId = personaId ?: ReplyPersona.default.id,
+            sceneId = sceneId ?: ReplyStyleCatalog.defaultScene.sceneId,
+            polishGoalId = polishGoalId ?: PolishGoal.default.id,
+            catalog = catalog
+        )
     }
 }

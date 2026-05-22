@@ -25,7 +25,7 @@ object DefaultPromptBuilder : PromptBuilder {
         return LlmRequest(
             systemPrompt = buildSystemPrompt(styleProfile),
             userPrompt = buildUserPrompt(context, candidateCount, styleProfile, draftText, settings.contextSendPolicy),
-            temperature = settings.temperature.coerceIn(0f, 2f),
+            temperature = LlmSampling.normalizeTemperature(settings.temperature),
             maxTokens = settings.maxTokens.coerceAtLeast(120),
             candidateCount = candidateCount
         )

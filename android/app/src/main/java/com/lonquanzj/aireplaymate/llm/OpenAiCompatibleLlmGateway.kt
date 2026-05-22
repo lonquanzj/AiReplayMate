@@ -1,6 +1,7 @@
 package com.lonquanzj.aireplaymate.llm
 
 import com.lonquanzj.aireplaymate.prompt.AppSettings
+import com.lonquanzj.aireplaymate.prompt.LlmSampling
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
@@ -101,7 +102,7 @@ internal object OpenAiCompatibleRequestMapper {
     ): JSONObject {
         return JSONObject()
             .put("model", model)
-            .put("temperature", request.temperature.toDouble())
+            .put("temperature", LlmSampling.normalizedTemperatureDouble(request.temperature))
             .put("max_tokens", request.maxTokens)
             .put(
                 "messages",
