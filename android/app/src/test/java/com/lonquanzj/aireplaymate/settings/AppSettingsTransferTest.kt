@@ -9,6 +9,7 @@ import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

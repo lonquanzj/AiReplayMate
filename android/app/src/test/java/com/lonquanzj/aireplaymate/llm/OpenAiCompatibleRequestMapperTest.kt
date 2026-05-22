@@ -3,6 +3,8 @@ package com.lonquanzj.aireplaymate.llm
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAiCompatibleRequestMapperTest {
@@ -66,7 +68,8 @@ class OpenAiCompatibleRequestMapperTest {
             model = "gpt-test"
         )
 
-        assertEquals("{\"model\":\"gpt-test\",\"temperature\":0.7", json.toString().take(39))
+        assertTrue(json.toString().contains("\"temperature\":0.7"))
+        assertFalse(json.toString().contains("0.699999"))
         assertEquals(0.7, json.getDouble("temperature"), 0.0)
     }
 }
