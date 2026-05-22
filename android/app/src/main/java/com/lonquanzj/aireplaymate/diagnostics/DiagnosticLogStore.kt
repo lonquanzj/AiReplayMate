@@ -107,11 +107,7 @@ object DiagnosticLogStore {
                 kind = DiagnosticLogKind.OVERLAY,
                 title = state.phase.label,
                 summary = state.lastFailure ?: state.status,
-                hint = when {
-                    state.lastFailure != null -> "请结合悬浮窗诊断步骤检查当前是否在微信单聊页、无障碍是否连接、输入框是否可见。"
-                    state.usedLocalFallback -> "本次已降级到本地候选，可继续检查 LLM 诊断定位模型或网络问题。"
-                    else -> "悬浮窗链路已跑通，可重点观察填入效果和候选质量。"
-                },
+                hint = state.toOverlayHint(),
                 metadata = listOf(
                     "a11y=${state.accessibilityMessageCount}",
                     "ocr=${state.ocrMessageCount}",
@@ -209,6 +205,37 @@ object DiagnosticLogStore {
             metadata = optString("metadata"),
             timestampMillis = optLong("timestampMillis")
         )
+    }
+
+    private fun OverlayDiagnosticsState.toOverlayHint(): String {
+        val failure = lastFailure.orEmpty()
+        return when {
+            failure.contains("无障碍服务未连接") -> {
+                "先到系统无障碍设置重新开启 AiReplayMate 服务，再回微信单聊页重试。"
+            }
+            failure.contains("输入框") || failure.contains("填入") -> {
+                "候选已生成但没有写入输入框。请确认微信底部处于文字输入模式、输入框可见，再点候选；必要时复制无障碍诊断里的填入步骤。"
+            }
+            failure.contains("不在微信") || failure.contains("微信页面") -> {
+                "当前目标不是微信聊天窗口。请切到微信单聊页，等待悬浮气泡显示后再触发。"
+            }
+            failure.contains("不像微信单聊页") -> {
+                "当前页面不像微信单聊页。先打开一个一对一聊天窗口，不要停在会话列表、设置页或群聊复杂场景。"
+            }
+            failure.isNotBlank() && mergedMessageCount <= 0 -> {
+                "本次没有拿到可用上下文。请确认无障碍服务可读取微信内容；若仍为空，再检查 OCR 授权和截图诊断。"
+            }
+            failure.isNotBlank() -> {
+                "请结合悬浮窗最近步骤、无障碍填入分类和 OCR 诊断定位；优先确认微信单聊页、输入框和权限状态。"
+            }
+            usedLocalFallback -> {
+                "本次已降级到本地候选，可继续检查 LLM 诊断定位模型、网络或 API Key 问题。"
+            }
+            usedOcr && ocrMessageCount > 0 -> {
+                "本次依靠 OCR 兜底补齐上下文，链路已跑通；若候选不准，优先看 OCR 识别文本是否干净。"
+            }
+            else -> "悬浮窗链路已跑通，可重点观察填入效果和候选质量。"
+        }
     }
 
     private fun Context.prefs() = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

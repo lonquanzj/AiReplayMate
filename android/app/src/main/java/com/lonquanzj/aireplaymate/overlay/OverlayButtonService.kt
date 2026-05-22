@@ -658,6 +658,8 @@ class OverlayButtonService : Service() {
                 if (result.success) {
                     OverlayDiagnosticsStore.onDone("候选已填入输入框，等待用户手动发送")
                     removeCandidatePanel()
+                } else {
+                    OverlayDiagnosticsStore.onFailed(result.message)
                 }
             }
         }

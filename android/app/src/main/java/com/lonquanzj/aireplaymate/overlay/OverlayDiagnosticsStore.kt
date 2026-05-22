@@ -111,7 +111,8 @@ object OverlayDiagnosticsStore {
         update(
             phase = OverlayRunPhase.DONE,
             status = message,
-            step = "完成：$message"
+            step = "完成：$message",
+            lastFailure = null
         )
     }
 

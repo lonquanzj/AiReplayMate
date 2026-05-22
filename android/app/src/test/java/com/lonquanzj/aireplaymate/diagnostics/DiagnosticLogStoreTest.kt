@@ -97,6 +97,46 @@ class DiagnosticLogStoreTest {
         assertFalse(entries.any { it.summary == "status 0" })
     }
 
+    @Test
+    fun overlay_entries_explain_common_failure_next_steps() {
+        DiagnosticLogStore.recordOverlay(
+            OverlayDiagnosticsState(
+                phase = OverlayRunPhase.FAILED,
+                status = "failed",
+                lastFailure = "未找到可用的微信输入框",
+                accessibilityMessageCount = 3,
+                mergedMessageCount = 3,
+                candidateCount = 2,
+                candidateSource = "LLM",
+                updatedAtMillis = 2_000L
+            )
+        )
+        DiagnosticLogStore.recordOverlay(
+            OverlayDiagnosticsState(
+                phase = OverlayRunPhase.FAILED,
+                status = "failed",
+                lastFailure = "当前不在微信页面",
+                updatedAtMillis = 2_001L
+            )
+        )
+        DiagnosticLogStore.recordOverlay(
+            OverlayDiagnosticsState(
+                phase = OverlayRunPhase.CANDIDATE_READY,
+                status = "LLM 不可用，已使用本地兜底候选",
+                usedLocalFallback = true,
+                candidateCount = 3,
+                candidateSource = "本地兜底",
+                updatedAtMillis = 2_002L
+            )
+        )
+
+        val snapshot = DiagnosticLogStore.buildSnapshot()
+
+        assertTrue(snapshot.contains("文字输入模式"))
+        assertTrue(snapshot.contains("切到微信单聊页"))
+        assertTrue(snapshot.contains("模型、网络或 API Key"))
+    }
+
     private companion object {
         const val PREF_NAME = "diagnostic_log_store"
     }
