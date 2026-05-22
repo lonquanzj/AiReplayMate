@@ -30,13 +30,13 @@ class OpenAiCompatibleLlmGateway(
 
         return withContext(Dispatchers.IO) {
             runCatching {
-                val requestJson = request.toOpenAiJson(settings.model)
+                val requestJson = OpenAiCompatibleRequestMapper.toOpenAiJson(request, settings.model)
                 LlmDebugStore.onRequestStarted(
-                    baseUrl = settings.chatCompletionsUrl(),
+                    baseUrl = OpenAiCompatibleRequestMapper.chatCompletionsUrl(settings),
                     model = settings.model,
                     requestPreview = requestJson.toString()
                 )
-                val connection = (URL(settings.chatCompletionsUrl()).openConnection() as HttpURLConnection)
+                val connection = (URL(OpenAiCompatibleRequestMapper.chatCompletionsUrl(settings)).openConnection() as HttpURLConnection)
                     .apply {
                         requestMethod = "POST"
                         connectTimeout = CONNECT_TIMEOUT_MS
@@ -83,43 +83,48 @@ class OpenAiCompatibleLlmGateway(
         }
     }
 
-    private fun LlmRequest.toOpenAiJson(model: String): JSONObject {
+    private fun HttpURLConnection.readResponseText(): String {
+        val stream = if (responseCode in 200..299) inputStream else errorStream
+        return stream?.bufferedReader(Charsets.UTF_8)?.use(BufferedReader::readText).orEmpty()
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 15_000
+        const val READ_TIMEOUT_MS = 30_000
+    }
+}
+
+internal object OpenAiCompatibleRequestMapper {
+    fun toOpenAiJson(
+        request: LlmRequest,
+        model: String
+    ): JSONObject {
         return JSONObject()
             .put("model", model)
-            .put("temperature", temperature.toDouble())
-            .put("max_tokens", maxTokens)
+            .put("temperature", request.temperature.toDouble())
+            .put("max_tokens", request.maxTokens)
             .put(
                 "messages",
                 JSONArray()
                     .put(
                         JSONObject()
                             .put("role", "system")
-                            .put("content", systemPrompt)
+                            .put("content", request.systemPrompt)
                     )
                     .put(
                         JSONObject()
                             .put("role", "user")
-                            .put("content", userPrompt)
+                            .put("content", request.userPrompt)
                     )
             )
     }
 
-    private fun HttpURLConnection.readResponseText(): String {
-        val stream = if (responseCode in 200..299) inputStream else errorStream
-        return stream?.bufferedReader(Charsets.UTF_8)?.use(BufferedReader::readText).orEmpty()
-    }
-
-    private fun AppSettings.chatCompletionsUrl(): String {
-        val normalized = baseUrl.trim().trimEnd('/')
+    fun chatCompletionsUrl(settings: AppSettings): String {
+        val normalized = settings.baseUrl.trim().trimEnd('/')
         return when {
             normalized.endsWith("/chat/completions") -> normalized
             normalized.endsWith("/v1") -> "$normalized/chat/completions"
             else -> "$normalized/v1/chat/completions"
         }
-    }
-
-    private companion object {
-        const val CONNECT_TIMEOUT_MS = 15_000
-        const val READ_TIMEOUT_MS = 30_000
     }
 }

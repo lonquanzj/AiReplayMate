@@ -117,4 +117,55 @@ class DefaultPromptBuilderTest {
         assertTrue(request.userPrompt.contains("我晚点回你"))
         assertTrue(request.systemPrompt.contains("输出协议"))
     }
+
+    @Test
+    fun build_forQuickReply_fullContext_keeps_only_last_20_messages() {
+        val request = DefaultPromptBuilder.build(
+            context = chatContext(
+                (0 until 25).map { index ->
+                    chatMessage(id = "m$index", role = ChatRole.FRIEND, content = "message-$index")
+                }
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.FULL_CONTEXT),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertFalse(request.userPrompt.contains("message-0"))
+        assertFalse(request.userPrompt.contains("message-4"))
+        assertTrue(request.userPrompt.contains("message-5"))
+        assertTrue(request.userPrompt.contains("message-24"))
+    }
+
+    @Test
+    fun build_forQuickReply_latestFriendPolicy_does_not_send_my_message_when_no_friend_message() {
+        val request = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(
+                    chatMessage(id = "m1", role = ChatRole.ME, content = "my private draft")
+                )
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertFalse(request.userPrompt.contains("my private draft"))
+        assertFalse(request.userPrompt.contains("鑱婂ぉ涓婁笅鏂囷細"))
+    }
+
+    @Test
+    fun build_sanitizes_control_characters_in_prompt_content() {
+        val request = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(
+                    chatMessage(id = "m1", role = ChatRole.FRIEND, content = "hi\u0000there\u0007")
+                )
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.FULL_CONTEXT),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertTrue(request.userPrompt.contains("hi there"))
+        assertFalse(request.userPrompt.contains("\u0000"))
+        assertFalse(request.userPrompt.contains("\u0007"))
+    }
 }

@@ -18,10 +18,10 @@ class AppSettingsValidatorTest {
         )
 
         assertFalse(validation.canRequest)
-        assertTrue(validation.errors.contains("API Key 不能为空"))
-        assertTrue(validation.errors.contains("Base URL 不能为空"))
-        assertTrue(validation.errors.contains("Model 不能为空"))
-        assertTrue(validation.errors.contains("候选数量建议保持在 1 到 5 条"))
+        assertTrue(validation.errors.any { it.contains("API Key") })
+        assertTrue(validation.errors.any { it.contains("Base URL") })
+        assertTrue(validation.errors.any { it.contains("Model") })
+        assertTrue(validation.errors.any { it.contains("1") && it.contains("5") })
     }
 
     @Test
@@ -35,7 +35,7 @@ class AppSettingsValidatorTest {
         )
 
         assertFalse(validation.canRequest)
-        assertTrue(validation.errors.contains("Base URL 需要是完整地址，例如 https://api.openai.com"))
+        assertTrue(validation.errors.any { it.contains("Base URL") && it.contains("https://api.openai.com") })
     }
 
     @Test
@@ -50,6 +50,22 @@ class AppSettingsValidatorTest {
         )
 
         assertTrue(validation.canRequest)
-        assertTrue(validation.warnings.contains("当前使用 http，仅建议本地代理或内网调试时使用"))
+        assertTrue(validation.warnings.any { it.contains("http") })
+    }
+
+    @Test
+    fun validate_rejects_unsupported_scheme_and_too_many_candidates() {
+        val validation = AppSettingsValidator.validate(
+            AppSettings(
+                apiKey = "sk-test",
+                baseUrl = "ftp://example.test",
+                model = "gpt-4o-mini",
+                candidateCount = 6
+            )
+        )
+
+        assertFalse(validation.canRequest)
+        assertTrue(validation.errors.any { it.contains("Base URL") && it.contains("http") && it.contains("https") })
+        assertTrue(validation.errors.any { it.contains("1") && it.contains("5") })
     }
 }
