@@ -191,6 +191,59 @@ function Ensure-DeviceAwakeAndUnlocked {
     Start-Sleep -Seconds 1
 }
 
+function Resolve-AppDebugApkPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$AdbPath,
+        [string[]]$AdbTargetArgs = @()
+    )
+
+    $debugApkDir = Join-Path $RepoRoot 'android\app\build\outputs\apk\debug'
+    $defaultApk = Join-Path $debugApkDir 'app-debug.apk'
+    if (Test-Path $defaultApk) {
+        return $defaultApk
+    }
+
+    if (-not (Test-Path $debugApkDir)) {
+        throw "Debug APK output directory not found at $debugApkDir"
+    }
+
+    $splitCandidates = @(
+        Get-ChildItem -Path $debugApkDir -Filter 'app-*-debug.apk' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'androidTest' } |
+            Sort-Object Name
+    )
+
+    if ($splitCandidates.Count -eq 0) {
+        throw "No debug APK found in $debugApkDir"
+    }
+
+    if ($splitCandidates.Count -eq 1) {
+        return $splitCandidates[0].FullName
+    }
+
+    $deviceAbi = ''
+    try {
+        $abiResult = & $AdbPath @AdbTargetArgs shell getprop ro.product.cpu.abi 2>$null
+        if ($null -ne $abiResult) {
+            $deviceAbi = ($abiResult | Out-String).Trim()
+        }
+    }
+    catch {
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($deviceAbi)) {
+        $matchedByAbi = $splitCandidates | Where-Object { $_.Name -like "*-$deviceAbi-debug.apk" } | Select-Object -First 1
+        if ($null -ne $matchedByAbi) {
+            return $matchedByAbi.FullName
+        }
+    }
+
+    return $splitCandidates[0].FullName
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $repoRoot
 
@@ -338,7 +391,7 @@ try {
             throw "Gradle assemble tasks failed, exit code=$installExit"
         }
 
-        $appApk = Join-Path $repoRoot 'android\app\build\outputs\apk\debug\app-debug.apk'
+        $appApk = Resolve-AppDebugApkPath -RepoRoot $repoRoot -AdbPath $adb -AdbTargetArgs $adbTargetArgs
         $testApk = Join-Path $repoRoot 'android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk'
         if (-not (Test-Path $appApk)) {
             throw "App APK not found at $appApk"
