@@ -19,7 +19,6 @@ class MainActivityLaunchProbeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            putExtra(MainActivity.EXTRA_SMOKE_TEST_MODE, true)
         }
 
         ActivityScenario.launch<MainActivity>(intent).use { scenario ->

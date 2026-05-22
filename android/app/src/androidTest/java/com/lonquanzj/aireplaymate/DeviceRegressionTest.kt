@@ -1,6 +1,4 @@
 package com.lonquanzj.aireplaymate
-
-import android.content.Intent
 import java.net.SocketTimeoutException
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -75,13 +73,6 @@ class DeviceRegressionTest {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             assertNotNull("Launch intent should exist for installed app", launchIntent)
             assertEquals(MainActivity::class.java.name, launchIntent?.component?.className)
-            assertTrue(
-                "Smoke mode intent flag should be recognized without launching activity",
-                MainActivity.isSmokeTestModeEnabled(
-                    context,
-                    Intent().putExtra(MainActivity.EXTRA_SMOKE_TEST_MODE, true)
-                )
-            )
 
             val updatedSettings = AppSettings(
                 apiKey = " device-test-key ",
