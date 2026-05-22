@@ -42,9 +42,9 @@ android {
         if (localDebugSigning) {
             create("localDebug") {
                 storeFile = rootProject.file(localProperty("aiReplayMate.debugStoreFile")!!)
-                storePassword = localProperty("aiReplayMate.debugStorePassword")!!
-                keyAlias = localProperty("aiReplayMate.debugKeyAlias")!!
-                keyPassword = localProperty("aiReplayMate.debugKeyPassword")!!
+                storePassword = localProperty("aiReplayMate.debugStorePassword")
+                keyAlias = localProperty("aiReplayMate.debugKeyAlias")
+                keyPassword = localProperty("aiReplayMate.debugKeyPassword")
             }
         }
     }
