@@ -1,6 +1,8 @@
 package com.lonquanzj.aireplaymate.prompt
 
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
+import com.lonquanzj.aireplaymate.accessibility.MessageSource
+import com.lonquanzj.aireplaymate.accessibility.ChatMessage
 import com.lonquanzj.aireplaymate.context.ChatContext
 
 interface PromptBuilder {
@@ -81,10 +83,15 @@ object DefaultPromptBuilder : PromptBuilder {
             ContextSendPolicy.FULL_CONTEXT -> visibleMessages.lastOrNull { it.role == ChatRole.FRIEND }
             ContextSendPolicy.LATEST_FRIEND_MESSAGE -> context.messages.lastOrNull { it.role == ChatRole.FRIEND }
         }
+        val includesOcrContext = when (contextSendPolicy) {
+            ContextSendPolicy.FULL_CONTEXT -> visibleMessages.any { it.isFromOcr }
+            ContextSendPolicy.LATEST_FRIEND_MESSAGE -> latestFriendMessage?.isFromOcr == true
+        }
         if (contextSendPolicy == ContextSendPolicy.LATEST_FRIEND_MESSAGE) {
             return buildString {
                 appendLine("下面是微信单聊里最近一条对方消息。")
                 appendLine("请基于这条消息生成 $candidateCount 条中文候选回复，要求自然、简洁、可直接填入输入框。")
+                appendOcrContextHintIfNeeded(includesOcrContext)
                 appendLine("本次角色：${styleProfile.personaConfig.label}。")
                 appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
                 appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
@@ -96,6 +103,7 @@ object DefaultPromptBuilder : PromptBuilder {
         return buildString {
             appendLine("下面是微信单聊的最近聊天上下文。")
             appendLine("请基于上下文生成 $candidateCount 条中文候选回复，要求自然、简洁、可直接填入输入框。")
+            appendOcrContextHintIfNeeded(includesOcrContext)
             appendLine("本次角色：${styleProfile.personaConfig.label}。")
             appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
             appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
@@ -107,6 +115,12 @@ object DefaultPromptBuilder : PromptBuilder {
             visibleMessages.forEach { message ->
                 appendLine("${message.role.promptLabel}: ${message.content.safeForPrompt()}")
             }
+        }
+    }
+
+    private fun StringBuilder.appendOcrContextHintIfNeeded(includesOcrContext: Boolean) {
+        if (includesOcrContext) {
+            appendLine(OCR_CONTEXT_HINT)
         }
     }
 
@@ -162,12 +176,17 @@ object DefaultPromptBuilder : PromptBuilder {
             ChatRole.UNKNOWN -> "未知"
         }
 
+    private val ChatMessage.isFromOcr: Boolean
+        get() = source == MessageSource.OCR || source == MessageSource.MERGED
+
     private const val MAX_PROMPT_MESSAGES = 20
     private val controlCharsRegex = Regex("[\\p{Cntrl}&&[^\n\t]]+")
     private const val DEFAULT_SYSTEM_PROMPT =
         "你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复。"
     private const val SAFETY_PROMPT =
         "安全边界：不得自动替用户承诺付款、合同、发送文件。"
+    private const val OCR_CONTEXT_HINT =
+        "上下文可能来自 OCR：理解语义前请温和纠正常见近形错、繁简差异和少量识别噪声。"
     private const val OUTPUT_PROTOCOL_PROMPT =
         "输出协议：请严格返回 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。不要使用列表编号、引号、解释性前缀。"
 }

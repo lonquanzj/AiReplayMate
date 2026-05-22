@@ -1,6 +1,7 @@
 package com.lonquanzj.aireplaymate.prompt
 
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
+import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.chatContext
 import com.lonquanzj.aireplaymate.chatMessage
 import org.junit.Assert.assertEquals
@@ -35,6 +36,8 @@ class DefaultPromptBuilderTest {
         assertFalse(request.systemPrompt.contains("回复短一点，轻轻调侃。"))
         assertTrue(request.userPrompt.contains("你是一个冷幽默但不冒犯的人。"))
         assertTrue(request.userPrompt.contains("回复短一点，轻轻调侃。"))
+        assertFalse(request.userPrompt.contains("上下文可能来自 OCR"))
+        assertFalse(request.userPrompt.contains("橄回/撒回/澈回"))
         assertTrue(request.systemPrompt.contains("输出协议"))
         assertTrue(request.userPrompt.contains("今晚有空吗？"))
         assertEquals(2f, request.temperature)
@@ -61,6 +64,40 @@ class DefaultPromptBuilderTest {
         assertFalse(request.userPrompt.contains("早上那条旧消息"))
         assertFalse(request.userPrompt.contains("我自己的回复"))
         assertFalse(request.userPrompt.contains("聊天上下文："))
+    }
+
+    @Test
+    fun build_forQuickReply_adds_ocr_hint_only_when_sent_context_uses_ocr() {
+        val latestFriendRequest = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(
+                    chatMessage(id = "m1", role = ChatRole.FRIEND, content = "无障碍旧消息"),
+                    chatMessage(
+                        id = "m2",
+                        role = ChatRole.FRIEND,
+                        content = "你又橄回了什么",
+                        source = MessageSource.OCR
+                    )
+                )
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertTrue(latestFriendRequest.userPrompt.contains("上下文可能来自 OCR"))
+        assertTrue(latestFriendRequest.userPrompt.contains("橄回/撒回/澈回"))
+
+        val accessibilityOnlyRequest = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(
+                    chatMessage(id = "m1", role = ChatRole.FRIEND, content = "今晚有空吗？")
+                )
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertFalse(accessibilityOnlyRequest.userPrompt.contains("上下文可能来自 OCR"))
     }
 
     @Test
