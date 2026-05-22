@@ -189,7 +189,9 @@ internal fun LlmTabContent(
     appSettings: AppSettings,
     testingLlm: Boolean,
     onSettingsChange: (AppSettings) -> Unit,
-    onTestConnection: () -> Unit
+    onTestConnection: () -> Unit,
+    onImportSettings: () -> Unit,
+    onExportSettings: () -> Unit
 ) {
     val llmDebugState by LlmDebugStore.state.collectAsState()
 
@@ -206,7 +208,9 @@ internal fun LlmTabContent(
             validation = AppSettingsValidator.validate(appSettings),
             isTesting = testingLlm,
             onSettingsChange = onSettingsChange,
-            onTestConnection = onTestConnection
+            onTestConnection = onTestConnection,
+            onImportSettings = onImportSettings,
+            onExportSettings = onExportSettings
         )
 
         LlmDiagnosticsSection(debugState = llmDebugState)
@@ -627,7 +631,9 @@ private fun LlmSettingsSection(
     validation: AppSettingsValidation,
     isTesting: Boolean,
     onSettingsChange: (AppSettings) -> Unit,
-    onTestConnection: () -> Unit
+    onTestConnection: () -> Unit,
+    onImportSettings: () -> Unit,
+    onExportSettings: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -730,6 +736,25 @@ private fun LlmSettingsSection(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isTesting) "测试中..." else "测试连接")
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onImportSettings,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("导入配置")
+                    }
+                    OutlinedButton(
+                        onClick = onExportSettings,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("导出配置")
+                    }
                 }
             }
         }

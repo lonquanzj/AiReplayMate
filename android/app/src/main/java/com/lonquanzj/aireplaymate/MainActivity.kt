@@ -9,6 +9,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,6 +105,7 @@ import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import com.lonquanzj.aireplaymate.settings.AppSettingsStore
+import com.lonquanzj.aireplaymate.settings.AppSettingsTransfer
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
@@ -179,6 +182,38 @@ private fun MainScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val exportSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            val payload = AppSettingsTransfer.encode(appSettings)
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+                it.write(payload)
+            } ?: error("Unable to open export file")
+        }.onSuccess {
+            Toast.makeText(context, "LLM 配置已导出", Toast.LENGTH_SHORT).show()
+        }.onFailure { error ->
+            Toast.makeText(context, "导出失败：${error.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+        }
+    }
+    val importSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                it.readText()
+            } ?: error("Unable to open import file")
+            AppSettingsTransfer.decode(raw).getOrThrow()
+        }.onSuccess { importedSettings ->
+            appSettings = importedSettings
+            saveAppSettings(importedSettings)
+            Toast.makeText(context, "LLM 配置已导入", Toast.LENGTH_SHORT).show()
+        }.onFailure { error ->
+            Toast.makeText(context, "导入失败：${error.message ?: "配置文件无效"}", Toast.LENGTH_LONG).show()
+        }
+    }
     var replyStyleProfile by remember(context) {
         mutableStateOf(ReplyStyleSettingsStore.load(context))
     }
@@ -290,6 +325,12 @@ private fun MainScreen(
                                         testLlmConnection(appSettings)
                                         testingLlm = false
                                     }
+                                },
+                                onImportSettings = {
+                                    importSettingsLauncher.launch(arrayOf("application/json", "text/*"))
+                                },
+                                onExportSettings = {
+                                    exportSettingsLauncher.launch("aireplaymate-llm-settings.json")
                                 }
                             )
                         }
