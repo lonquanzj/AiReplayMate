@@ -2,6 +2,7 @@ package com.lonquanzj.aireplaymate.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.hardware.display.DisplayManager
 import android.media.Image
 import android.media.ImageReader
@@ -90,16 +91,35 @@ class AndroidScreenCaptureProvider(
         }
 
         try {
-            steps += "VirtualDisplay 已创建，等待首帧"
-            repeat(MAX_FRAME_WAIT_COUNT) {
+            steps += "VirtualDisplay 已创建，等待稳定帧"
+            var selectedFrame: CapturedFrame? = null
+            var lastFrame: CapturedFrame? = null
+
+            for (attempt in 1..MAX_FRAME_WAIT_COUNT) {
                 delay(FRAME_WAIT_INTERVAL_MS)
-                if (image == null) {
-                    image = reader?.acquireLatestImage()
+                image = reader?.acquireLatestImage()
+                val nextImage = image ?: continue
+                val frame = try {
+                    nextImage.toCapturedFrame()
+                } finally {
+                    nextImage.close()
+                    image = null
+                }
+                steps += "帧$attempt：${frame.stats.summary}"
+
+                if (frame.stats.looksUseful) {
+                    selectedFrame = frame
+                    lastFrame?.bitmap?.recycle()
+                    lastFrame = null
+                    break
+                } else {
+                    lastFrame?.bitmap?.recycle()
+                    lastFrame = frame
                 }
             }
 
-            val capturedImage = image
-            if (capturedImage == null) {
+            val capturedFrame = selectedFrame ?: lastFrame
+            if (capturedFrame == null) {
                 finish(
                     OcrScreenCaptureResult(
                         success = false,
@@ -107,23 +127,30 @@ class AndroidScreenCaptureProvider(
                         message = "截图数据流已创建，但未取到首帧",
                         width = width,
                         height = height,
-                        steps = steps + "首帧：超时"
+                        steps = steps + "稳定帧：超时"
                     )
                 )
             } else {
-                val plane = capturedImage.planes.firstOrNull()
-                val bitmap = capturedImage.toBitmap()
+                val debugImagePath = OcrDebugImageWriter.save(
+                    context = context,
+                    bitmap = capturedFrame.bitmap,
+                    label = "full"
+                )
                 finish(
                     OcrScreenCaptureResult(
                         success = true,
                         status = OcrScreenCaptureStatus.CAPTURED,
                         message = "已成功抓取一帧屏幕图像",
-                        bitmap = bitmap,
-                        width = capturedImage.width,
-                        height = capturedImage.height,
-                        rowStride = plane?.rowStride,
-                        pixelStride = plane?.pixelStride,
-                        steps = steps + "首帧：成功"
+                        bitmap = capturedFrame.bitmap,
+                        width = capturedFrame.width,
+                        height = capturedFrame.height,
+                        rowStride = capturedFrame.rowStride,
+                        pixelStride = capturedFrame.pixelStride,
+                        frameStats = capturedFrame.stats.summary,
+                        debugImagePath = debugImagePath,
+                        steps = steps +
+                            "稳定帧：${if (capturedFrame.stats.looksUseful) "成功" else "使用最后一帧"}" +
+                            "调试截图：${debugImagePath.ifBlank { "保存失败" }}"
                     )
                 )
             }
@@ -153,6 +180,19 @@ class AndroidScreenCaptureProvider(
         return result
     }
 
+    private fun Image.toCapturedFrame(): CapturedFrame {
+        val plane = planes.firstOrNull()
+        val bitmap = toBitmap()
+        return CapturedFrame(
+            bitmap = bitmap,
+            width = width,
+            height = height,
+            rowStride = plane?.rowStride,
+            pixelStride = plane?.pixelStride,
+            stats = bitmap.computeFrameStats()
+        )
+    }
+
     private fun Image.toBitmap(): Bitmap {
         val plane = planes.first()
         val pixelStride = plane.pixelStride
@@ -172,8 +212,78 @@ class AndroidScreenCaptureProvider(
         return cropped
     }
 
+    private fun Bitmap.computeFrameStats(): FrameStats {
+        val sampleStepX = (width / FRAME_SAMPLE_GRID).coerceAtLeast(1)
+        val sampleStepY = (height / FRAME_SAMPLE_GRID).coerceAtLeast(1)
+        var count = 0
+        var lumaSum = 0L
+        var minLuma = 255
+        var maxLuma = 0
+        var nonDarkCount = 0
+
+        var y = sampleStepY / 2
+        while (y < height) {
+            var x = sampleStepX / 2
+            while (x < width) {
+                val color = getPixel(x, y)
+                val luma = (
+                    Color.red(color) * 299 +
+                        Color.green(color) * 587 +
+                        Color.blue(color) * 114
+                    ) / 1000
+                lumaSum += luma
+                minLuma = minOf(minLuma, luma)
+                maxLuma = maxOf(maxLuma, luma)
+                if (luma > NON_DARK_LUMA_THRESHOLD) nonDarkCount += 1
+                count += 1
+                x += sampleStepX
+            }
+            y += sampleStepY
+        }
+
+        if (count == 0) {
+            return FrameStats(
+                averageLuma = 0,
+                lumaRange = 0,
+                nonDarkRatio = 0f
+            )
+        }
+
+        return FrameStats(
+            averageLuma = (lumaSum / count).toInt(),
+            lumaRange = maxLuma - minLuma,
+            nonDarkRatio = nonDarkCount.toFloat() / count
+        )
+    }
+
+    private data class CapturedFrame(
+        val bitmap: Bitmap,
+        val width: Int,
+        val height: Int,
+        val rowStride: Int?,
+        val pixelStride: Int?,
+        val stats: FrameStats
+    )
+
+    private data class FrameStats(
+        val averageLuma: Int,
+        val lumaRange: Int,
+        val nonDarkRatio: Float
+    ) {
+        val looksUseful: Boolean
+            get() = nonDarkRatio >= MIN_USEFUL_NON_DARK_RATIO &&
+                lumaRange >= MIN_USEFUL_LUMA_RANGE
+
+        val summary: String
+            get() = "avg=$averageLuma, range=$lumaRange, nonDark=${(nonDarkRatio * 100).toInt()}%"
+    }
+
     private companion object {
-        const val MAX_FRAME_WAIT_COUNT = 10
+        const val MAX_FRAME_WAIT_COUNT = 18
         const val FRAME_WAIT_INTERVAL_MS = 120L
+        const val FRAME_SAMPLE_GRID = 24
+        const val NON_DARK_LUMA_THRESHOLD = 16
+        const val MIN_USEFUL_NON_DARK_RATIO = 0.02f
+        const val MIN_USEFUL_LUMA_RANGE = 12
     }
 }

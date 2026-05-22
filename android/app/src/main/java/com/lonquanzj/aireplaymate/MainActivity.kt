@@ -450,6 +450,8 @@ internal fun buildOcrDebugSnapshot(
         appendLine("screenCaptureSize=${screenCaptureState.sizeLabel}")
         appendLine("screenCaptureRowStride=${screenCaptureState.rowStride ?: "N/A"}")
         appendLine("screenCapturePixelStride=${screenCaptureState.pixelStride ?: "N/A"}")
+        appendLine("screenCaptureFrameStats=${screenCaptureState.frameStats.ifBlank { "N/A" }}")
+        appendLine("screenCaptureDebugImage=${screenCaptureState.debugImagePath.ifBlank { "N/A" }}")
         appendLine("screenCaptureUpdatedAt=${formatTimestamp(screenCaptureState.updatedAtMillis)}")
         appendLine("engineConfigured=${debugState.engineConfigured}")
         appendLine("category=${debugState.lastCategory.label}")

@@ -1995,6 +1995,14 @@ private fun OcrFallbackSection(
                     value = screenCaptureState.message
                 )
                 StatusRow(
+                    label = "帧质量",
+                    value = screenCaptureState.frameStats.ifBlank { "暂无" }
+                )
+                StatusRow(
+                    label = "调试截图",
+                    value = screenCaptureState.debugImagePath.ifBlank { "暂无" }
+                )
+                StatusRow(
                     label = "最近分类",
                     value = debugState.lastCategory.label
                 )

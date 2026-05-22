@@ -110,4 +110,31 @@ class OcrTextPostProcessorTest {
             }.count
         )
     }
+
+    @Test
+    fun toChatMessages_filters_withdraw_notices_and_short_symbol_noise() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("B# L8:46", Rect(420, 520, 620, 550)),
+                OcrRecognizedLine("你撤回了一条消息", Rect(390, 600, 650, 632)),
+                OcrRecognizedLine("你撒回了一条消息", Rect(390, 650, 650, 682)),
+                OcrRecognizedLine("(07tt", Rect(80, 760, 210, 792)),
+                OcrRecognizedLine("你又撤回了什么", Rect(60, 840, 380, 872)),
+                OcrRecognizedLine("见不得人的消息", Rect(62, 876, 390, 908))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertEquals(1, result.messages.size)
+        assertEquals(ChatRole.FRIEND, result.messages.single().role)
+        assertEquals("你又撤回了什么\n见不得人的消息", result.messages.single().content)
+        assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.SYSTEM_NOTICE }.count)
+        assertEquals(
+            2,
+            result.filterSummaries.first {
+                it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET
+            }.count
+        )
+    }
 }

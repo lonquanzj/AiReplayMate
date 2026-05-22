@@ -23,6 +23,7 @@ enum class OcrFilterReason(
     TOP_CHROME("顶部导航区"),
     BOTTOM_INPUT("底部输入区"),
     TOO_WIDE("文本行过宽"),
+    SYSTEM_NOTICE("系统提示"),
     IMAGE_OR_NON_CHAT_SNIPPET("疑似图片或非聊天短片段"),
     DUPLICATE("重复文本")
 }
@@ -107,6 +108,7 @@ object OcrTextPostProcessor {
         if (content.length > MAX_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_LONG)
         if (content.isLikelyChromeText()) return dropped(OcrFilterReason.CHROME_TEXT)
         if (content.isTimeOrBadgeText()) return dropped(OcrFilterReason.TIME_OR_BADGE)
+        if (content.isLikelySystemNotice()) return dropped(OcrFilterReason.SYSTEM_NOTICE)
         if (content.isLikelyImageOrNonChatSnippet()) {
             return dropped(OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET)
         }
@@ -160,8 +162,23 @@ object OcrTextPostProcessor {
             unreadBadgeRegex.matches(this)
     }
 
+    private fun String.isLikelySystemNotice(): Boolean {
+        return systemNoticeFragments.any { contains(it, ignoreCase = true) } ||
+            withdrawNoticeRegex.containsMatchIn(this)
+    }
+
     private fun String.isLikelyImageOrNonChatSnippet(): Boolean {
-        return shortTimestampWithSymbolRegex.matches(this)
+        return shortTimestampWithSymbolRegex.matches(this) ||
+            isShortSymbolDigitNoise()
+    }
+
+    private fun String.isShortSymbolDigitNoise(): Boolean {
+        val normalized = normalizeText(this)
+        if (normalized.length > MAX_SHORT_NOISE_LENGTH) return false
+        if (cjkRegex.containsMatchIn(normalized)) return false
+        val hasDigit = normalized.any { it.isDigit() }
+        val hasSymbol = normalized.any { !it.isLetterOrDigit() && !it.isWhitespace() }
+        return hasDigit && hasSymbol
     }
 
     private fun normalizeText(text: String): String {
@@ -271,15 +288,22 @@ object OcrTextPostProcessor {
         "轻触输入",
         "切换到键盘"
     )
+    private val systemNoticeFragments = listOf(
+        "撤回了一条消息",
+        "撒回了一条消息"
+    )
     private val whitespaceRegex = Regex("\\s+")
     private val timeRegex = Regex("""^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}$""")
     private val shortTimestampWithSymbolRegex = Regex("""^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}[\s\p{P}\p{S}]+$""")
     private val dateRegex = Regex("""^(\d{1,2}月\d{1,2}日|星期[一二三四五六日天]|昨天|今天|周[一二三四五六日天]).*$""")
     private val allPunctuationRegex = Regex("""^[\p{P}\p{S}\s]+$""")
     private val unreadBadgeRegex = Regex("""^\d{1,3}$""")
+    private val withdrawNoticeRegex = Regex("""[你我他她它对方]?.?[撤撒]回了?一条消息""")
+    private val cjkRegex = Regex("""[\u4E00-\u9FFF]""")
 
     private const val MIN_TEXT_LENGTH = 2
     private const val MAX_TEXT_LENGTH = 120
+    private const val MAX_SHORT_NOISE_LENGTH = 12
     private const val MAX_OCR_MESSAGES = 20
     private const val MAX_FILTER_SAMPLES_PER_REASON = 3
     private const val MAX_FILTER_SAMPLE_LENGTH = 24

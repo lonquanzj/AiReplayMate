@@ -24,6 +24,8 @@ data class OcrScreenCaptureResult(
     val height: Int? = null,
     val rowStride: Int? = null,
     val pixelStride: Int? = null,
+    val frameStats: String = "",
+    val debugImagePath: String = "",
     val steps: List<String> = emptyList()
 )
 
@@ -34,6 +36,8 @@ data class OcrScreenCaptureState(
     val height: Int? = null,
     val rowStride: Int? = null,
     val pixelStride: Int? = null,
+    val frameStats: String = "",
+    val debugImagePath: String = "",
     val steps: List<String> = emptyList(),
     val updatedAtMillis: Long = 0L
 ) {
@@ -57,6 +61,8 @@ object OcrScreenCaptureStore {
             height = result.height,
             rowStride = result.rowStride,
             pixelStride = result.pixelStride,
+            frameStats = result.frameStats,
+            debugImagePath = result.debugImagePath,
             steps = result.steps,
             updatedAtMillis = System.currentTimeMillis()
         )

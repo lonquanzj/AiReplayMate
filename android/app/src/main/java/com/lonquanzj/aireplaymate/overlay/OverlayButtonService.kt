@@ -27,6 +27,8 @@ import android.widget.Toast
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
+import com.lonquanzj.aireplaymate.ocr.OcrDebugState
+import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
@@ -443,6 +445,7 @@ class OverlayButtonService : Service() {
         debugState: AccessibilityDebugState
     ) {
         removeCandidatePanel()
+        val ocrDebugState = OcrDebugStore.state.value
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -485,6 +488,8 @@ class OverlayButtonService : Service() {
             )
         )
 
+        addOcrDiagnosticSection(panel, ocrDebugState)
+
         if (message.contains("无障碍")) {
             panel.addView(
                 TextView(this).apply {
@@ -512,12 +517,70 @@ class OverlayButtonService : Service() {
             )
         }
 
-        candidatePanelView = panel
+        val scrollView = ScrollView(this).apply {
+            addView(panel)
+        }
+        candidatePanelView = scrollView
         val params = anchoredPanelLayoutParams(
-            contentView = panel,
-            panelWidth = panelWidthDp(280)
+            contentView = scrollView,
+            panelWidth = panelWidthDp(300),
+            panelHeight = dp(500)
         )
-        windowManager?.addView(panel, params)
+        windowManager?.addView(scrollView, params)
+    }
+
+    private fun addOcrDiagnosticSection(
+        panel: LinearLayout,
+        debugState: OcrDebugState
+    ) {
+        if (debugState.updatedAtMillis <= 0L) return
+        val filterLines = debugState.filterSummaryPreviews.take(5)
+        val messageLines = debugState.extractedMessagePreviews.takeLast(5)
+        if (filterLines.isEmpty() && messageLines.isEmpty()) return
+
+        panel.addView(
+            TextView(this).apply {
+                text = "OCR Filter Summary"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF3F2B78.toInt())
+                setPadding(0, dp(10), 0, 0)
+            }
+        )
+        panel.addView(
+            TextView(this).apply {
+                text = if (filterLines.isEmpty()) {
+                    "N/A"
+                } else {
+                    filterLines.joinToString(separator = "\n") { "- $it" }
+                }
+                textSize = 11f
+                setTextColor(0xFF7A659C.toInt())
+                setPadding(0, dp(4), 0, 0)
+            }
+        )
+
+        panel.addView(
+            TextView(this).apply {
+                text = "OCR Messages"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF3F2B78.toInt())
+                setPadding(0, dp(10), 0, 0)
+            }
+        )
+        panel.addView(
+            TextView(this).apply {
+                text = if (messageLines.isEmpty()) {
+                    "N/A"
+                } else {
+                    messageLines.joinToString(separator = "\n") { "- $it" }
+                }
+                textSize = 11f
+                setTextColor(0xFF7A659C.toInt())
+                setPadding(0, dp(4), 0, 0)
+            }
+        )
     }
 
     private fun buildFailureHint(
