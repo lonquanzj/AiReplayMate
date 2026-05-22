@@ -53,7 +53,7 @@ class MlKitChineseOcrEngine(
                 "ML Kit 中文文本块：${recognized.chineseBlockCount}",
                 "ML Kit 默认文本块：${recognized.latinBlockCount}",
                 "ML Kit 识别轮次：${recognized.passSummaries.joinToString("；")}",
-                "OCR 输入截图：${recognized.debugImagePaths.joinToString("；").ifBlank { "无" }}",
+                "OCR 输入截图：${recognized.debugImageSummary}",
                 "ML Kit 合并行：${recognized.lines.size}",
                 "OCR 原始行：${processResult.rawLineCount}",
                 "OCR 保留行：${processResult.keptLineCount}",
@@ -110,6 +110,7 @@ class MlKitChineseOcrEngine(
 
     private suspend fun recognizeWithFallbacks(bitmap: Bitmap): MlKitRecognitionResult {
         val passResults = mutableListOf(recognizeChatCrop(bitmap))
+        val debugImagePaths = passResults.mapNotNull { it.debugImagePath.ifBlank { null } }
 
         return MlKitRecognitionResult(
             chineseBlockCount = passResults.sumOf { it.chineseBlockCount },
@@ -118,7 +119,12 @@ class MlKitChineseOcrEngine(
             passSummaries = passResults.map {
                 "${it.passName}:zh=${it.chineseBlockCount},latin=${it.latinBlockCount},lines=${it.lines.size}"
             },
-            debugImagePaths = passResults.mapNotNull { it.debugImagePath.ifBlank { null } }
+            debugImageSummary = if (OcrDebugImageWriter.isEnabled) {
+                debugImagePaths.joinToString("；")
+                    .ifBlank { "无" }
+            } else {
+                "已关闭（非调试构建）"
+            }
         )
     }
 
@@ -245,7 +251,7 @@ class MlKitChineseOcrEngine(
         val latinBlockCount: Int,
         val lines: List<OcrRecognizedLine>,
         val passSummaries: List<String>,
-        val debugImagePaths: List<String>
+        val debugImageSummary: String
     )
 
     private data class MlKitRecognitionPassResult(

@@ -29,6 +29,11 @@ class AndroidScreenCaptureProvider(
                 bitmap = accessibilityBitmap,
                 label = "accessibilityFull"
             )
+            val debugImageStep = if (OcrDebugImageWriter.isEnabled) {
+                "调试截图：${debugImagePath.ifBlank { "保存失败" }}"
+            } else {
+                "调试截图：已关闭（非调试构建）"
+            }
             return@withContext finish(
                 OcrScreenCaptureResult(
                     success = true,
@@ -41,7 +46,7 @@ class AndroidScreenCaptureProvider(
                     debugImagePath = debugImagePath,
                     steps = steps +
                         "截图来源：无障碍服务" +
-                        "调试截图：${debugImagePath.ifBlank { "保存失败" }}"
+                        debugImageStep
                 )
             )
         }

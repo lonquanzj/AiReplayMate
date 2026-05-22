@@ -2,17 +2,23 @@ package com.lonquanzj.aireplaymate.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.lonquanzj.aireplaymate.BuildConfig
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 object OcrDebugImageWriter {
+    val isEnabled: Boolean
+        get() = BuildConfig.DEBUG
+
     fun save(
         context: Context,
         bitmap: Bitmap,
         label: String
     ): String {
+        if (!isEnabled) return ""
+
         return runCatching {
             val dir = File(context.getExternalFilesDir(null), "ocr-debug")
             dir.mkdirs()
