@@ -1,8 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun localProperty(name: String): String? {
+    return localProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+val localDebugSigning = listOf(
+    "aiReplayMate.debugStoreFile",
+    "aiReplayMate.debugStorePassword",
+    "aiReplayMate.debugKeyAlias",
+    "aiReplayMate.debugKeyPassword"
+).all { localProperty(it) != null }
 
 android {
     namespace = "com.lonquanzj.aireplaymate"
@@ -18,7 +38,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (localDebugSigning) {
+            create("localDebug") {
+                storeFile = rootProject.file(localProperty("aiReplayMate.debugStoreFile")!!)
+                storePassword = localProperty("aiReplayMate.debugStorePassword")!!
+                keyAlias = localProperty("aiReplayMate.debugKeyAlias")!!
+                keyPassword = localProperty("aiReplayMate.debugKeyPassword")!!
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfigs.findByName("localDebug")?.let {
+                signingConfig = it
+            }
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
