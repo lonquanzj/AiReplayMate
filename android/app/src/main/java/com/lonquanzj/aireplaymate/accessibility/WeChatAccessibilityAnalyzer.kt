@@ -442,7 +442,7 @@ object WeChatAccessibilityAnalyzer {
         if (top < rootBounds.top + MIN_MESSAGE_TOP_OFFSET) return false
         if (inputBounds != null && bottom >= inputBounds.top - INPUT_AREA_PADDING) return false
         if (isLikelyControl) return false
-        if (timeRegex.matches(cleanText)) return false
+        if (timestampRegex.matches(cleanText)) return false
         if (dateRegex.matches(cleanText)) return false
         if (emojiOnlyRegex.matches(cleanText)) return false
         if (badgeRegex.matches(cleanText)) return false
@@ -506,8 +506,12 @@ object WeChatAccessibilityAnalyzer {
     private const val MAX_MESSAGE_TEXT_LENGTH = 180
     private const val MIN_MESSAGE_TOP_OFFSET = 132
     private const val INPUT_AREA_PADDING = 24
-    private val timeRegex = Regex("^\\d{1,2}:\\d{2}$")
-    private val dateRegex = Regex("^(周[一二三四五六日天]|昨天|今天|前天|\\d{1,2}月\\d{1,2}日).*$")
+    private val timestampRegex = Regex(
+        """^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}$"""
+    )
+    private val dateRegex = Regex(
+        """^((\d{4}年)?\d{1,2}月\d{1,2}日|周[一二三四五六日天]|星期[一二三四五六日天]|昨天|今天|前天)(\s*((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2})?.*$"""
+    )
     private val badgeRegex = Regex("^\\d{1,3}$")
     private val emojiOnlyRegex = Regex("^[\\p{So}\\p{Cn}]+$")
     private val systemHintRegex = Regex("撤回|以上是|以下是|系统")

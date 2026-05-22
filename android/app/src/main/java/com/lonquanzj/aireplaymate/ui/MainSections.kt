@@ -2015,6 +2015,16 @@ private fun OcrFallbackSection(
                     value = debugState.extractedMessages.size.toString()
                 )
                 StatusRow(
+                    label = "过滤原因",
+                    value = if (debugState.filterSummaries.isEmpty()) {
+                        "暂无"
+                    } else {
+                        debugState.filterSummaries.take(3).joinToString("；") {
+                            "${it.reason.label} ${it.count}"
+                        }
+                    }
+                )
+                StatusRow(
                     label = "更新时间",
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
@@ -2080,6 +2090,21 @@ private fun OcrFallbackSection(
                     debugState.steps.forEach { step ->
                         Text(
                             text = "- $step",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (debugState.filterSummaryPreviews.isNotEmpty()) {
+                    Text(
+                        text = "过滤原因",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    debugState.filterSummaryPreviews.take(8).forEach { summary ->
+                        Text(
+                            text = "- $summary",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

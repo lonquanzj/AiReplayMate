@@ -4,6 +4,7 @@ import com.lonquanzj.aireplaymate.accessibility.ChatRole
 import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.chatMessage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -89,5 +90,22 @@ class DefaultContextBuilderTest {
         assertEquals(11, context.messages.size)
         assertTrue(context.enoughForReply)
         assertEquals(ChatRole.FRIEND, context.messages.first().role)
+    }
+
+    @Test
+    fun build_filters_accessibility_timestamp_noise_so_ocr_can_fallback() {
+        val context = DefaultContextBuilder.build(
+            accessibilityMessages = listOf(
+                chatMessage(id = "time-1", role = ChatRole.UNKNOWN, content = "19:52"),
+                chatMessage(id = "time-2", role = ChatRole.UNKNOWN, content = "下午 7:52"),
+                chatMessage(id = "date-1", role = ChatRole.UNKNOWN, content = "今天 下午 7:52"),
+                chatMessage(id = "badge-1", role = ChatRole.UNKNOWN, content = "99")
+            ),
+            targetApp = "wechat",
+            conversationType = ConversationType.SINGLE_CHAT
+        )
+
+        assertEquals(0, context.messages.size)
+        assertFalse(context.enoughForReply)
     }
 }

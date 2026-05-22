@@ -19,6 +19,7 @@ data class OcrAttemptResult(
     val category: OcrAttemptCategory,
     val message: String,
     val messages: List<ChatMessage> = emptyList(),
+    val filterSummaries: List<OcrFilterSummary> = emptyList(),
     val steps: List<String> = emptyList(),
     val engineConfigured: Boolean = false
 )

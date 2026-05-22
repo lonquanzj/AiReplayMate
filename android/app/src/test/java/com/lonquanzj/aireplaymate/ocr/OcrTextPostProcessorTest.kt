@@ -30,6 +30,9 @@ class OcrTextPostProcessorTest {
         assertEquals(8, result.rawLineCount)
         assertEquals(3, result.keptLineCount)
         assertEquals(5, result.droppedLineCount)
+        assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.CHROME_TEXT }.count)
+        assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.TIME_OR_BADGE }.count)
+        assertEquals(1, result.filterSummaries.first { it.reason == OcrFilterReason.DUPLICATE }.count)
         assertEquals(2, result.messages.size)
         assertEquals(ChatRole.FRIEND, result.messages[0].role)
         assertEquals("在忙吗\n方便回我一下", result.messages[0].content)
@@ -58,5 +61,53 @@ class OcrTextPostProcessorTest {
         assertEquals("消息5", result.messages.first().content)
         assertEquals("消息24", result.messages.last().content)
         assertTrue(result.messages.all { it.role != ChatRole.UNKNOWN })
+    }
+
+    @Test
+    fun toChatMessages_reports_filter_reason_samples() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("", Rect(20, 300, 40, 320)),
+                OcrRecognizedLine("缺少位置的聊天文本", null),
+                OcrRecognizedLine("这是一条横跨整个屏幕的系统提示文字", Rect(10, 500, 980, 540)),
+                OcrRecognizedLine("底部输入内容", Rect(60, 1740, 360, 1780))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertEquals(0, result.messages.size)
+        assertEquals(4, result.droppedLineCount)
+        assertTrue(result.filterSummaries.any {
+            it.reason == OcrFilterReason.TOO_SHORT && it.samples.contains("(空)")
+        })
+        assertTrue(result.filterSummaries.any {
+            it.reason == OcrFilterReason.MISSING_BOUNDS &&
+                it.samples.contains("缺少位置的聊天文本")
+        })
+        assertTrue(result.filterSummaries.any { it.reason == OcrFilterReason.TOO_WIDE })
+        assertTrue(result.filterSummaries.any { it.reason == OcrFilterReason.BOTTOM_INPUT })
+    }
+
+    @Test
+    fun toChatMessages_filters_image_or_non_chat_timestamp_snippets() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("7:57 -", Rect(650, 520, 900, 550)),
+                OcrRecognizedLine("上午 7：57 -", Rect(60, 620, 360, 650)),
+                OcrRecognizedLine("7:57 我刚到", Rect(60, 720, 360, 750))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertEquals(1, result.messages.size)
+        assertEquals("7:57 我刚到", result.messages.single().content)
+        assertEquals(
+            2,
+            result.filterSummaries.first {
+                it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET
+            }.count
+        )
     }
 }

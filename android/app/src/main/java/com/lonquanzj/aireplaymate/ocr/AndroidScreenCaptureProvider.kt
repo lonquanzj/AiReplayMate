@@ -39,6 +39,19 @@ class AndroidScreenCaptureProvider(
             "目标尺寸：${width}x${height} / $densityDpi dpi"
         )
 
+        val foregroundStarted = OcrMediaProjectionForegroundService.ensureStarted(context)
+        if (!foregroundStarted) {
+            return@withContext finish(
+                OcrScreenCaptureResult(
+                    success = false,
+                    status = OcrScreenCaptureStatus.FAILED,
+                    message = "启动截图前台服务失败，请确认通知权限和前台服务权限可用",
+                    steps = steps + "MediaProjection 前台服务：启动失败"
+                )
+            )
+        }
+        steps += "MediaProjection 前台服务：已启动"
+
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         var projection: MediaProjection? = null
         var reader: ImageReader? = null
@@ -65,6 +78,7 @@ class AndroidScreenCaptureProvider(
             callback?.let { projection?.unregisterCallback(it) }
             projection?.stop()
             reader?.close()
+            OcrMediaProjectionForegroundService.stop(context)
             return@withContext finish(
                 OcrScreenCaptureResult(
                     success = false,
@@ -130,6 +144,7 @@ class AndroidScreenCaptureProvider(
             callback?.let { projection?.unregisterCallback(it) }
             projection?.stop()
             reader?.close()
+            OcrMediaProjectionForegroundService.stop(context)
         }
     }
 

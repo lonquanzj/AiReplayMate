@@ -81,6 +81,22 @@ class WeChatAccessibilityAnalyzerTest {
     }
 
     @Test
+    fun inspect_does_not_treat_timestamp_text_as_message() {
+        val result = inspectWithNodes(
+            listOf(
+                NodeSpec(text = "小李", left = 430, top = 80, width = 220),
+                NodeSpec(text = "19:52", left = 480, top = 180, width = 120),
+                NodeSpec(text = "下午 7:52", left = 430, top = 300, width = 220),
+                NodeSpec(text = "今天 下午 7:52", left = 360, top = 420, width = 360),
+                NodeSpec(editable = true, hint = "输入消息", left = 120, top = 1700, width = 760)
+            )
+        )
+
+        assertTrue(result.looksLikeChatPage)
+        assertEquals(0, result.extractedMessages.size)
+    }
+
+    @Test
     fun findChatInputNode_prefers_real_chat_input_over_generic_search_box() {
         val inputNode = inspectInputNodeWithNodes(
             listOf(

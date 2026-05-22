@@ -12,12 +12,18 @@ data class OcrDebugState(
     val lastReason: String = "",
     val targetApp: String = "",
     val extractedMessages: List<ChatMessage> = emptyList(),
+    val filterSummaries: List<OcrFilterSummary> = emptyList(),
     val steps: List<String> = emptyList(),
     val updatedAtMillis: Long = 0L
 ) {
     val extractedMessagePreviews: List<String>
         get() = extractedMessages.mapIndexed { index, message ->
             "${index + 1}. ${message.role.name} ${(message.confidence * 100).toInt()}% ${message.content}"
+        }
+
+    val filterSummaryPreviews: List<String>
+        get() = filterSummaries.mapIndexed { index, summary ->
+            "${index + 1}. ${summary.displayText}"
         }
 }
 
@@ -41,6 +47,7 @@ object OcrDebugStore {
             lastReason = reason,
             targetApp = targetApp,
             extractedMessages = result.messages,
+            filterSummaries = result.filterSummaries,
             steps = result.steps,
             updatedAtMillis = System.currentTimeMillis()
         )

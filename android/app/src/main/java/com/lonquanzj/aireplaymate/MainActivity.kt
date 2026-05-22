@@ -456,6 +456,7 @@ internal fun buildOcrDebugSnapshot(
         appendLine("status=${debugState.lastStatus}")
         appendLine("reason=${debugState.lastReason.ifBlank { "N/A" }}")
         appendLine("targetApp=${debugState.targetApp.ifBlank { "N/A" }}")
+        appendLine("filterSummaryCount=${debugState.filterSummaries.size}")
         appendLine()
         appendLine("OCR Steps:")
         if (debugState.steps.isEmpty()) {
@@ -469,6 +470,13 @@ internal fun buildOcrDebugSnapshot(
             appendLine("N/A")
         } else {
             screenCaptureState.steps.forEach(::appendLine)
+        }
+        appendLine()
+        appendLine("OCR Filter Summary:")
+        if (debugState.filterSummaryPreviews.isEmpty()) {
+            appendLine("N/A")
+        } else {
+            debugState.filterSummaryPreviews.forEach(::appendLine)
         }
         appendLine()
         appendLine("OCR Messages:")

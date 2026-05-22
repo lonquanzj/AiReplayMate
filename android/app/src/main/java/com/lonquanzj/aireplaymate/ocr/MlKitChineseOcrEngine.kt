@@ -51,6 +51,7 @@ class MlKitChineseOcrEngine(
                 "OCR 原始行：${processResult.rawLineCount}",
                 "OCR 保留行：${processResult.keptLineCount}",
                 "OCR 过滤行：${processResult.droppedLineCount}",
+                "OCR 过滤原因：${processResult.filterSummaries.toStepSummary()}",
                 "OCR 聚合消息：${messages.size}"
             )
             finish(
@@ -61,6 +62,7 @@ class MlKitChineseOcrEngine(
                         success = false,
                         category = OcrAttemptCategory.NO_TEXT,
                         message = "OCR 未识别到可用聊天文本",
+                        filterSummaries = processResult.filterSummaries,
                         steps = listOf("收到 OCR 请求：$reason") +
                             captureResult.steps +
                             processingSteps,
@@ -72,6 +74,7 @@ class MlKitChineseOcrEngine(
                         category = OcrAttemptCategory.SUCCESS,
                         message = "OCR 识别到 ${messages.size} 条候选文本",
                         messages = messages,
+                        filterSummaries = processResult.filterSummaries,
                         steps = listOf("收到 OCR 请求：$reason") +
                             captureResult.steps +
                             processingSteps,
@@ -126,6 +129,11 @@ class MlKitChineseOcrEngine(
             screenWidth = screenWidth,
             screenHeight = screenHeight
         )
+    }
+
+    private fun List<OcrFilterSummary>.toStepSummary(): String {
+        if (isEmpty()) return "无"
+        return joinToString("；") { "${it.reason.label} ${it.count}" }
     }
 
     private fun finish(

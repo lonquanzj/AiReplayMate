@@ -3,6 +3,7 @@ package com.lonquanzj.aireplaymate.diagnostics
 import android.content.Context
 import com.lonquanzj.aireplaymate.llm.LlmDebugState
 import com.lonquanzj.aireplaymate.llm.LlmDebugPhase
+import com.lonquanzj.aireplaymate.ocr.OcrFilterSummary
 import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
 import com.lonquanzj.aireplaymate.overlay.OverlayRunPhase
@@ -91,6 +92,7 @@ object DiagnosticLogStore {
                 metadata = listOf(
                     "target=${state.targetApp.ifBlank { "N/A" }}",
                     "messages=${state.extractedMessages.size}",
+                    "filters=${state.filterSummaries.toMetadataSummary()}",
                     "engine=${state.engineConfigured}"
                 ).joinToString(", "),
                 timestampMillis = state.updatedAtMillis
@@ -236,6 +238,11 @@ object DiagnosticLogStore {
             }
             else -> "悬浮窗链路已跑通，可重点观察填入效果和候选质量。"
         }
+    }
+
+    private fun List<OcrFilterSummary>.toMetadataSummary(): String {
+        if (isEmpty()) return "N/A"
+        return take(4).joinToString("|") { "${it.reason.label}:${it.count}" }
     }
 
     private fun Context.prefs() = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

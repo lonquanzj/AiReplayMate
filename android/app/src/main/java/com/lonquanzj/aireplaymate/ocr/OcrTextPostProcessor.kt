@@ -11,11 +11,43 @@ data class OcrRecognizedLine(
     val bounds: Rect?
 )
 
+enum class OcrFilterReason(
+    val label: String
+) {
+    TOO_SHORT("文本过短"),
+    TOO_LONG("文本过长"),
+    CHROME_TEXT("疑似界面控件"),
+    TIME_OR_BADGE("时间或角标"),
+    MISSING_BOUNDS("缺少位置"),
+    INVALID_BOUNDS("位置无效"),
+    TOP_CHROME("顶部导航区"),
+    BOTTOM_INPUT("底部输入区"),
+    TOO_WIDE("文本行过宽"),
+    IMAGE_OR_NON_CHAT_SNIPPET("疑似图片或非聊天短片段"),
+    DUPLICATE("重复文本")
+}
+
+data class OcrFilterSummary(
+    val reason: OcrFilterReason,
+    val count: Int,
+    val samples: List<String> = emptyList()
+) {
+    val displayText: String
+        get() = buildString {
+            append("${reason.label} $count")
+            if (samples.isNotEmpty()) {
+                append("：")
+                append(samples.joinToString(" / "))
+            }
+        }
+}
+
 data class OcrPostProcessResult(
     val messages: List<ChatMessage>,
     val rawLineCount: Int,
     val keptLineCount: Int,
-    val droppedLineCount: Int
+    val droppedLineCount: Int,
+    val filterSummaries: List<OcrFilterSummary> = emptyList()
 )
 
 object OcrTextPostProcessor {
@@ -24,9 +56,22 @@ object OcrTextPostProcessor {
         screenWidth: Int,
         screenHeight: Int
     ): OcrPostProcessResult {
-        val cleanedLines = lines
-            .mapNotNull { it.clean(screenWidth, screenHeight) }
-            .distinctBy { normalizeText(it.text) }
+        val cleanedResults = lines.map { it.clean(screenWidth, screenHeight) }
+        val initiallyKept = cleanedResults.mapNotNull { it.candidate }
+        val dropped = cleanedResults.mapNotNull { it.dropped }.toMutableList()
+        val seenTexts = mutableSetOf<String>()
+        val cleanedLines = initiallyKept
+            .filter { candidate ->
+                val normalized = normalizeText(candidate.text)
+                val isNew = seenTexts.add(normalized)
+                if (!isNew) {
+                    dropped += OcrDroppedLine(
+                        reason = OcrFilterReason.DUPLICATE,
+                        text = candidate.text
+                    )
+                }
+                isNew
+            }
             .sortedWith(compareBy<OcrLineCandidate> { it.bounds.top }.thenBy { it.bounds.left })
 
         val grouped = cleanedLines
@@ -48,31 +93,46 @@ object OcrTextPostProcessor {
             messages = messages,
             rawLineCount = lines.size,
             keptLineCount = cleanedLines.size,
-            droppedLineCount = lines.size - cleanedLines.size
+            droppedLineCount = dropped.size,
+            filterSummaries = dropped.toFilterSummaries()
         )
     }
 
     private fun OcrRecognizedLine.clean(
         screenWidth: Int,
         screenHeight: Int
-    ): OcrLineCandidate? {
+    ): OcrCleanResult {
         val content = text.trim()
-        if (content.length < MIN_TEXT_LENGTH) return null
-        if (content.length > MAX_TEXT_LENGTH) return null
-        if (content.isLikelyChromeText()) return null
-        if (content.isTimeOrBadgeText()) return null
+        if (content.length < MIN_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_SHORT)
+        if (content.length > MAX_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_LONG)
+        if (content.isLikelyChromeText()) return dropped(OcrFilterReason.CHROME_TEXT)
+        if (content.isTimeOrBadgeText()) return dropped(OcrFilterReason.TIME_OR_BADGE)
+        if (content.isLikelyImageOrNonChatSnippet()) {
+            return dropped(OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET)
+        }
 
-        val safeBounds = bounds ?: return null
-        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) return null
-        if (safeBounds.top < screenHeight * TOP_CHROME_RATIO) return null
-        if (safeBounds.bottom > screenHeight * BOTTOM_INPUT_RATIO) return null
-        if (safeBounds.width() > screenWidth * MAX_LINE_WIDTH_RATIO) return null
+        val safeBounds = bounds ?: return dropped(OcrFilterReason.MISSING_BOUNDS)
+        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) return dropped(OcrFilterReason.INVALID_BOUNDS)
+        if (safeBounds.top < screenHeight * TOP_CHROME_RATIO) return dropped(OcrFilterReason.TOP_CHROME)
+        if (safeBounds.bottom > screenHeight * BOTTOM_INPUT_RATIO) return dropped(OcrFilterReason.BOTTOM_INPUT)
+        if (safeBounds.width() > screenWidth * MAX_LINE_WIDTH_RATIO) return dropped(OcrFilterReason.TOO_WIDE)
 
         val role = inferRole(safeBounds, screenWidth)
-        return OcrLineCandidate(
-            text = content,
-            role = role,
-            bounds = safeBounds
+        return OcrCleanResult(
+            candidate = OcrLineCandidate(
+                text = content,
+                role = role,
+                bounds = safeBounds
+            )
+        )
+    }
+
+    private fun OcrRecognizedLine.dropped(reason: OcrFilterReason): OcrCleanResult {
+        return OcrCleanResult(
+            dropped = OcrDroppedLine(
+                reason = reason,
+                text = text
+            )
         )
     }
 
@@ -100,6 +160,10 @@ object OcrTextPostProcessor {
             unreadBadgeRegex.matches(this)
     }
 
+    private fun String.isLikelyImageOrNonChatSnippet(): Boolean {
+        return shortTimestampWithSymbolRegex.matches(this)
+    }
+
     private fun normalizeText(text: String): String {
         return whitespaceRegex.replace(text.trim(), " ")
     }
@@ -108,6 +172,16 @@ object OcrTextPostProcessor {
         val text: String,
         val role: ChatRole,
         val bounds: Rect
+    )
+
+    private data class OcrDroppedLine(
+        val reason: OcrFilterReason,
+        val text: String
+    )
+
+    private data class OcrCleanResult(
+        val candidate: OcrLineCandidate? = null,
+        val dropped: OcrDroppedLine? = null
     )
 
     private class OcrBubbleCandidate(line: OcrLineCandidate) {
@@ -152,6 +226,27 @@ object OcrTextPostProcessor {
         }
     }
 
+    private fun List<OcrDroppedLine>.toFilterSummaries(): List<OcrFilterSummary> {
+        return groupBy { it.reason }
+            .map { (reason, lines) ->
+                OcrFilterSummary(
+                    reason = reason,
+                    count = lines.size,
+                    samples = lines
+                        .map { it.text.toSampleText() }
+                        .distinct()
+                        .take(MAX_FILTER_SAMPLES_PER_REASON)
+                )
+            }
+            .sortedWith(compareByDescending<OcrFilterSummary> { it.count }.thenBy { it.reason.ordinal })
+    }
+
+    private fun String.toSampleText(): String {
+        val normalized = normalizeText(this)
+        if (normalized.isBlank()) return "(空)"
+        return normalized.take(MAX_FILTER_SAMPLE_LENGTH)
+    }
+
     private val chromeTexts = setOf(
         "微信",
         "发送",
@@ -177,7 +272,8 @@ object OcrTextPostProcessor {
         "切换到键盘"
     )
     private val whitespaceRegex = Regex("\\s+")
-    private val timeRegex = Regex("""^(\d{1,2}:\d{2}|上午\s*\d{1,2}:\d{2}|下午\s*\d{1,2}:\d{2})$""")
+    private val timeRegex = Regex("""^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}$""")
+    private val shortTimestampWithSymbolRegex = Regex("""^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}[\s\p{P}\p{S}]+$""")
     private val dateRegex = Regex("""^(\d{1,2}月\d{1,2}日|星期[一二三四五六日天]|昨天|今天|周[一二三四五六日天]).*$""")
     private val allPunctuationRegex = Regex("""^[\p{P}\p{S}\s]+$""")
     private val unreadBadgeRegex = Regex("""^\d{1,3}$""")
@@ -185,6 +281,8 @@ object OcrTextPostProcessor {
     private const val MIN_TEXT_LENGTH = 2
     private const val MAX_TEXT_LENGTH = 120
     private const val MAX_OCR_MESSAGES = 20
+    private const val MAX_FILTER_SAMPLES_PER_REASON = 3
+    private const val MAX_FILTER_SAMPLE_LENGTH = 24
     private const val TOP_CHROME_RATIO = 0.10f
     private const val BOTTOM_INPUT_RATIO = 0.84f
     private const val MAX_LINE_WIDTH_RATIO = 0.86f
