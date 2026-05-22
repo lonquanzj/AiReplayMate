@@ -10,7 +10,7 @@ data class AppSettings(
     val baseUrl: String = "https://api.openai.com/",
     val model: String = "gpt-4o-mini",
     val temperature: Float = 0.7f,
-    val maxTokens: Int = 280,
+    val maxTokens: Int = 300,
     val customSystemPrompt: String? = null,
     val candidateCount: Int = 3,
     val contextSendPolicy: ContextSendPolicy = ContextSendPolicy.FULL_CONTEXT

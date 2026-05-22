@@ -44,6 +44,14 @@ object AppSettingsValidator {
             errors += "Model 不能为空"
         }
 
+        if (settings.temperature !in 0f..2f) {
+            errors += "Temperature 需要保持在 0.0 到 2.0 之间"
+        }
+
+        if (settings.maxTokens !in 120..2000) {
+            errors += "Max tokens 需要保持在 120 到 2000 之间"
+        }
+
         if (settings.candidateCount !in 1..5) {
             errors += "候选数量建议保持在 1 到 5 条"
         }

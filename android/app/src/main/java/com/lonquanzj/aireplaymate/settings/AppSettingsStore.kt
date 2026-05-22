@@ -9,6 +9,8 @@ object AppSettingsStore {
     private const val KEY_API_KEY = "api_key"
     private const val KEY_BASE_URL = "base_url"
     private const val KEY_MODEL = "model"
+    private const val KEY_TEMPERATURE = "temperature"
+    private const val KEY_MAX_TOKENS = "max_tokens"
     private const val KEY_CONTEXT_SEND_POLICY = "context_send_policy"
 
     fun load(context: Context): AppSettings {
@@ -20,8 +22,8 @@ object AppSettingsStore {
                 .ifBlank { defaults.baseUrl },
             model = prefs.getString(KEY_MODEL, defaults.model).orEmpty()
                 .ifBlank { defaults.model },
-            temperature = defaults.temperature,
-            maxTokens = defaults.maxTokens,
+            temperature = prefs.getFloat(KEY_TEMPERATURE, defaults.temperature),
+            maxTokens = prefs.getInt(KEY_MAX_TOKENS, defaults.maxTokens),
             customSystemPrompt = defaults.customSystemPrompt,
             candidateCount = defaults.candidateCount,
             contextSendPolicy = prefs.getString(KEY_CONTEXT_SEND_POLICY, defaults.contextSendPolicy.name)
@@ -38,6 +40,8 @@ object AppSettingsStore {
             .putString(KEY_API_KEY, settings.apiKey.trim())
             .putString(KEY_BASE_URL, settings.baseUrl.trim())
             .putString(KEY_MODEL, settings.model.trim())
+            .putFloat(KEY_TEMPERATURE, settings.temperature)
+            .putInt(KEY_MAX_TOKENS, settings.maxTokens)
             .putString(KEY_CONTEXT_SEND_POLICY, settings.contextSendPolicy.name)
             .apply()
     }

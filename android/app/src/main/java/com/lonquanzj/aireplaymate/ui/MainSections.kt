@@ -41,6 +41,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -116,6 +117,7 @@ import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 
@@ -678,6 +680,28 @@ private fun LlmSettingsSection(
                     label = { Text("Model") }
                 )
 
+                LlmParameterSlider(
+                    label = "Temperature",
+                    valueText = "%.1f".format(settings.temperature),
+                    value = settings.temperature.coerceIn(0f, 2f),
+                    valueRange = 0f..2f,
+                    steps = 19,
+                    onValueChange = { value ->
+                        onSettingsChange(settings.copy(temperature = (value * 10).roundToInt() / 10f))
+                    }
+                )
+
+                LlmParameterSlider(
+                    label = "Max tokens",
+                    valueText = settings.maxTokens.toString(),
+                    value = settings.maxTokens.coerceIn(120, 2000).toFloat(),
+                    valueRange = 120f..2000f,
+                    onValueChange = { value ->
+                        val maxTokens = (value / 10).roundToInt() * 10
+                        onSettingsChange(settings.copy(maxTokens = maxTokens.coerceIn(120, 2000)))
+                    }
+                )
+
                 ContextSendPolicySelector(
                     selected = settings.contextSendPolicy,
                     onSelected = { onSettingsChange(settings.copy(contextSendPolicy = it)) }
@@ -709,6 +733,43 @@ private fun LlmSettingsSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LlmParameterSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    steps: Int = 0
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

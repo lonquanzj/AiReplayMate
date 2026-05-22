@@ -13,6 +13,8 @@ class AppSettingsValidatorTest {
                 apiKey = " ",
                 baseUrl = " ",
                 model = "",
+                temperature = 2.5f,
+                maxTokens = 80,
                 candidateCount = 0
             )
         )
@@ -21,6 +23,8 @@ class AppSettingsValidatorTest {
         assertTrue(validation.errors.any { it.contains("API Key") })
         assertTrue(validation.errors.any { it.contains("Base URL") })
         assertTrue(validation.errors.any { it.contains("Model") })
+        assertTrue(validation.errors.any { it.contains("Temperature") && it.contains("2.0") })
+        assertTrue(validation.errors.any { it.contains("Max tokens") && it.contains("120") })
         assertTrue(validation.errors.any { it.contains("1") && it.contains("5") })
     }
 

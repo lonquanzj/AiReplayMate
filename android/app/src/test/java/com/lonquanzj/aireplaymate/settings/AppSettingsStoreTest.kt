@@ -30,6 +30,8 @@ class AppSettingsStoreTest {
                 apiKey = "  sk-test  ",
                 baseUrl = "  https://example.test/v1/  ",
                 model = "  gpt-test  ",
+                temperature = 0.9f,
+                maxTokens = 420,
                 contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE
             )
         )
@@ -39,6 +41,8 @@ class AppSettingsStoreTest {
         assertEquals("sk-test", loaded.apiKey)
         assertEquals("https://example.test/v1/", loaded.baseUrl)
         assertEquals("gpt-test", loaded.model)
+        assertEquals(0.9f, loaded.temperature, 0.0001f)
+        assertEquals(420, loaded.maxTokens)
         assertEquals(ContextSendPolicy.LATEST_FRIEND_MESSAGE, loaded.contextSendPolicy)
     }
 
@@ -66,6 +70,8 @@ class AppSettingsStoreTest {
         const val KEY_API_KEY = "api_key"
         const val KEY_BASE_URL = "base_url"
         const val KEY_MODEL = "model"
+        const val KEY_TEMPERATURE = "temperature"
+        const val KEY_MAX_TOKENS = "max_tokens"
         const val KEY_CONTEXT_SEND_POLICY = "context_send_policy"
     }
 }
