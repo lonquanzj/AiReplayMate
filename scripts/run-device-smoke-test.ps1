@@ -11,6 +11,7 @@ param(
     [string]$TestClass,
     [string]$AppPackage = 'com.lonquanzj.aireplaymate',
     [string]$TestPackage = 'com.lonquanzj.aireplaymate.test',
+    [string]$DeviceSerial,
     [int]$InstrumentTimeoutSeconds = 120,
     [switch]$SkipInstall
 )
@@ -155,7 +156,8 @@ function Parse-InstrumentationTestResults {
 function Ensure-DeviceAwakeAndUnlocked {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$AdbPath
+        [string]$AdbPath,
+        [string[]]$AdbTargetArgs = @()
     )
 
     Write-Host "[3.5/5] Wake device and dismiss keyguard (best effort)"
@@ -177,7 +179,7 @@ function Ensure-DeviceAwakeAndUnlocked {
 
     try {
         foreach ($commandArgs in $commands) {
-            & $AdbPath @commandArgs 1>$null 2>$null
+            & $AdbPath @AdbTargetArgs @commandArgs 1>$null 2>$null
         }
     }
     finally {
@@ -256,6 +258,7 @@ $joinedTestClasses = ($selectedTests -join ',')
 $testResults = @()
 $passedTestNames = @()
 $failedTestNames = @()
+$adbTargetArgs = @()
 
 try {
     Write-Host "[1/5] Prepare environment"
@@ -264,6 +267,9 @@ try {
     Write-Host "  java: $javaHome"
     Write-Host "  out : $outDir"
     Write-Host "  tests: $joinedTestClasses"
+    if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        Write-Host "  device: $DeviceSerial"
+    }
 
     Write-Host "[2/5] Clean stale connected test artifacts"
     Remove-Item -Recurse -Force 'android/app/build/outputs/androidTest-results/connected' -ErrorAction SilentlyContinue
@@ -281,20 +287,82 @@ try {
         throw 'No online device detected. Connect a real device and enable USB debugging.'
     }
 
-    Ensure-DeviceAwakeAndUnlocked -AdbPath $adb
+    $onlineSerials = @(
+        $onlineDevices |
+            ForEach-Object { ($_ -split "`t")[0].Trim() }
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        if ($onlineSerials.Count -gt 1) {
+            $normalizedSerialGroups = @(
+                $onlineSerials |
+                    Group-Object { $_ -replace ' \(\d+\)(?=\._adb-tls-connect\._tcp$)', '' }
+            )
+            if ($normalizedSerialGroups.Count -eq 1) {
+                $DeviceSerial = @(
+                    $onlineSerials |
+                        Sort-Object { if ($_ -match ' \(\d+\)(?=\._adb-tls-connect\._tcp$)') { 1 } else { 0 } }, { $_ }
+                )[0]
+                Write-Warning "ADB reported duplicate mDNS entries for the same device. Auto-selected '$DeviceSerial'."
+            }
+            else {
+                throw "Multiple online devices detected. Re-run with -DeviceSerial '<serial>'. Online devices: $($onlineSerials -join ', ')"
+            }
+        }
+        else {
+            $DeviceSerial = $onlineSerials[0]
+        }
+    }
+    elseif ($onlineSerials -notcontains $DeviceSerial) {
+        throw "Requested device '$DeviceSerial' is not online. Online devices: $($onlineSerials -join ', ')"
+    }
+
+    $adbTargetArgs = @('-s', $DeviceSerial)
+    $env:ANDROID_SERIAL = $DeviceSerial
+    "selectedDevice=$DeviceSerial" | Add-Content $summaryLog
+    Write-Host "  selected device: $DeviceSerial"
+
+    Ensure-DeviceAwakeAndUnlocked -AdbPath $adb -AdbTargetArgs $adbTargetArgs
 
     Write-Host "[4/5] Install app + test APK"
-    & $adb logcat -c
+    & $adb @adbTargetArgs logcat -c
     if ($SkipInstall) {
         Write-Host "  Skip install because -SkipInstall is set"
         "Skip install because -SkipInstall is set" | Set-Content $installLog
         $installExit = 0
     }
     else {
-        & $gradlew ':app:installDebug' ':app:installDebugAndroidTest' '--console=plain' 2>&1 | Tee-Object -FilePath $installLog | Out-Host
+        & $gradlew ':app:assembleDebug' ':app:assembleDebugAndroidTest' '--console=plain' 2>&1 | Tee-Object -FilePath $installLog | Out-Host
         $installExit = $LASTEXITCODE
         if ($installExit -ne 0) {
-            throw "Gradle install tasks failed, exit code=$installExit"
+            throw "Gradle assemble tasks failed, exit code=$installExit"
+        }
+
+        $appApk = Join-Path $repoRoot 'android\app\build\outputs\apk\debug\app-debug.apk'
+        $testApk = Join-Path $repoRoot 'android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk'
+        if (-not (Test-Path $appApk)) {
+            throw "App APK not found at $appApk"
+        }
+        if (-not (Test-Path $testApk)) {
+            throw "Test APK not found at $testApk"
+        }
+
+        "Install app APK via adb: $appApk" | Add-Content $installLog
+        & $adb @adbTargetArgs install -r -d $appApk 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
+        $installExit = $LASTEXITCODE
+        if ($installExit -ne 0) {
+            throw "Unable to install $appApk"
+        }
+
+        Write-Host "  Uninstall stale test package if present"
+        "Uninstall stale test package if present: $TestPackage" | Add-Content $installLog
+        & $adb @adbTargetArgs uninstall $TestPackage 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
+
+        "Install test APK via adb: $testApk" | Add-Content $installLog
+        & $adb @adbTargetArgs install -r -t -d $testApk 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
+        $installExit = $LASTEXITCODE
+        if ($installExit -ne 0) {
+            throw "Unable to install $testApk"
         }
     }
 
@@ -304,12 +372,12 @@ try {
         Write-Warning 'Do not use these Activity probes as merge gate; prefer default no-Activity DeviceRegressionTest suite for stable pass/fail signal.'
     }
     $runner = "$TestPackage/androidx.test.runner.AndroidJUnitRunner"
-    & $adb shell am force-stop $AppPackage | Out-Null
-    & $adb shell am force-stop $TestPackage | Out-Null
+    & $adb @adbTargetArgs shell am force-stop $AppPackage | Out-Null
+    & $adb @adbTargetArgs shell am force-stop $TestPackage | Out-Null
     if (Test-Path $instrumentLog) { Remove-Item -Force $instrumentLog }
     if (Test-Path $instrumentErrLog) { Remove-Item -Force $instrumentErrLog }
     $instrumentProcess = Start-Process -FilePath $adb `
-        -ArgumentList @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner) `
+        -ArgumentList @($adbTargetArgs + @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner)) `
         -RedirectStandardOutput $instrumentLog `
         -RedirectStandardError $instrumentErrLog `
         -NoNewWindow `
@@ -330,7 +398,7 @@ try {
 
     if ($instrumentWaitTimedOut) {
         $instrumentTimedOut = $true
-        $pidofResult = & $adb shell pidof $AppPackage 2>$null
+        $pidofResult = & $adb @adbTargetArgs shell pidof $AppPackage 2>$null
         $timedOutAppPid = if ($null -eq $pidofResult) { '' } else { ($pidofResult | Out-String).Trim() }
         if (-not [string]::IsNullOrWhiteSpace($timedOutAppPid)) {
             # Dump Java thread stacks to logcat before terminating instrumentation.
@@ -343,7 +411,7 @@ try {
                 $Global:PSNativeCommandUseErrorActionPreference = $false
             }
             try {
-                & $adb shell "kill -3 $timedOutAppPid" 1>$null 2>$null
+                & $adb @adbTargetArgs shell "kill -3 $timedOutAppPid" 1>$null 2>$null
             }
             catch {
             }
@@ -385,9 +453,9 @@ catch {
     Write-Host "SMOKE TEST ERROR: $scriptError"
 }
 finally {
-    if (-not (Test-Path $logcatLog)) {
+    if ($adbTargetArgs.Count -gt 0 -and -not (Test-Path $logcatLog)) {
         try {
-            & $adb logcat -d > $logcatLog
+            & $adb @adbTargetArgs logcat -d > $logcatLog
         }
         catch {
         }
