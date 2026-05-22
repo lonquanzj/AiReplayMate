@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="sharedpref" path="ai_replay_mate_settings.xml" />
+    <include domain="sharedpref" path="ai_replay_mate_reply_style.xml" />
+    <include domain="sharedpref" path="ai_replay_mate_reply_style_catalog.xml" />
+</full-backup-content>

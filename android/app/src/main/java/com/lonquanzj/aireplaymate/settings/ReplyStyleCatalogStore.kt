@@ -1,5 +1,6 @@
 package com.lonquanzj.aireplaymate.settings
 
+import android.app.backup.BackupManager
 import android.content.Context
 import com.lonquanzj.aireplaymate.prompt.PolishGoalConfig
 import com.lonquanzj.aireplaymate.prompt.ReplyPersonaConfig
@@ -29,6 +30,7 @@ object ReplyStyleCatalogStore {
             .edit()
             .putString(KEY_CATALOG_JSON, encodeCatalog(catalog))
             .apply()
+        BackupManager(context.applicationContext).dataChanged()
     }
 
     fun resetBuiltins(

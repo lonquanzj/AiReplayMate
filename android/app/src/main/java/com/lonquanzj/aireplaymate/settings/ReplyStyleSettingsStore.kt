@@ -1,5 +1,6 @@
 package com.lonquanzj.aireplaymate.settings
 
+import android.app.backup.BackupManager
 import android.content.Context
 import com.lonquanzj.aireplaymate.prompt.PolishGoal
 import com.lonquanzj.aireplaymate.prompt.ReplyPersona
@@ -37,5 +38,6 @@ object ReplyStyleSettingsStore {
             .putString(KEY_SCENE, profile.playbookConfig.id)
             .putString(KEY_POLISH_GOAL, profile.polishGoalConfig.id)
             .apply()
+        BackupManager(context.applicationContext).dataChanged()
     }
 }

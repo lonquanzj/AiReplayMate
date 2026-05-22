@@ -1,5 +1,6 @@
 package com.lonquanzj.aireplaymate.settings
 
+import android.app.backup.BackupManager
 import android.content.Context
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.ContextSendPolicy
@@ -44,6 +45,7 @@ object AppSettingsStore {
             .putInt(KEY_MAX_TOKENS, settings.maxTokens)
             .putString(KEY_CONTEXT_SEND_POLICY, settings.contextSendPolicy.name)
             .apply()
+        BackupManager(context.applicationContext).dataChanged()
     }
 
     private fun String?.toContextSendPolicy(default: ContextSendPolicy): ContextSendPolicy {
