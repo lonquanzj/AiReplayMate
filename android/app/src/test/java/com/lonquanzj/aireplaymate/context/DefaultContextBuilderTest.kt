@@ -70,4 +70,24 @@ class DefaultContextBuilderTest {
         assertEquals("重复消息", context.messages.last().content)
         assertEquals(0.8f, context.messages.last().confidence, 0.0001f)
     }
+
+    @Test
+    fun build_keeps_unknown_accessibility_messages_as_reply_context() {
+        val context = DefaultContextBuilder.build(
+            accessibilityMessages = (0 until 11).map { index ->
+                chatMessage(
+                    id = "a$index",
+                    role = ChatRole.UNKNOWN,
+                    content = "聊天内容$index",
+                    confidence = 0.45f
+                )
+            },
+            targetApp = "wechat",
+            conversationType = ConversationType.SINGLE_CHAT
+        )
+
+        assertEquals(11, context.messages.size)
+        assertTrue(context.enoughForReply)
+        assertEquals(ChatRole.FRIEND, context.messages.first().role)
+    }
 }

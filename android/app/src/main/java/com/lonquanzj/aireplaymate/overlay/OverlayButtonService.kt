@@ -263,8 +263,7 @@ class OverlayButtonService : Service() {
         val sessionResult = result.getOrElse { error ->
             val message = error.message ?: "生成候选失败"
             OverlayDiagnosticsStore.onFailed(message)
-            removeCandidatePanel()
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            showFailurePanel(message, debugState)
             return
         }
         if (sessionResult.usedLocalFallback) {
@@ -437,6 +436,112 @@ class OverlayButtonService : Service() {
             panelHeight = dp(500)
         )
         windowManager?.addView(scrollView, params)
+    }
+
+    private fun showFailurePanel(
+        message: String,
+        debugState: AccessibilityDebugState
+    ) {
+        removeCandidatePanel()
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = overlayPanelBackground()
+            elevation = 14f
+        }
+
+        panel.addView(
+            panelHeader("悬浮窗诊断") {
+                OverlayDiagnosticsStore.onDone("用户关闭失败提示")
+                removeCandidatePanel()
+            }
+        )
+
+        panel.addView(
+            TextView(this).apply {
+                text = message
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF3F2B78.toInt())
+                setPadding(0, dp(8), 0, 0)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        panel.addView(
+            TextView(this).apply {
+                text = buildFailureHint(message, debugState)
+                textSize = 12f
+                setTextColor(0xFF7A659C.toInt())
+                setPadding(0, dp(6), 0, 0)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        if (message.contains("无障碍")) {
+            panel.addView(
+                TextView(this).apply {
+                    text = "打开无障碍设置"
+                    textSize = 13f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = selectedMenuButtonBackground()
+                    setOnClickListener {
+                        startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                    }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dp(10)
+                }
+            )
+        }
+
+        candidatePanelView = panel
+        val params = anchoredPanelLayoutParams(
+            contentView = panel,
+            panelWidth = panelWidthDp(280)
+        )
+        windowManager?.addView(panel, params)
+    }
+
+    private fun buildFailureHint(
+        message: String,
+        debugState: AccessibilityDebugState
+    ): String {
+        return when {
+            message.contains("无障碍") -> {
+                "请开启 AiReplayMate 无障碍服务后，回到微信单聊页再点气泡。"
+            }
+
+            message.contains("微信") -> {
+                "当前包名：${debugState.packageName.ifBlank { "未知" }}。请切到微信单聊页后重试。"
+            }
+
+            message.contains("单聊") -> {
+                val reason = debugState.chatDetectionReason.ifBlank { "页面特征不足" }
+                "识别原因：$reason。请确认聊天输入框可见。"
+            }
+
+            else -> {
+                "可在首页的悬浮窗诊断里查看完整阶段和最近一次失败摘要。"
+            }
+        }
     }
 
     private fun menuHint(text: String): TextView {

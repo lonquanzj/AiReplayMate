@@ -232,11 +232,11 @@ object WeChatAccessibilityAnalyzer {
         val centerRatio = centerX.toFloat() / rootWidth
 
         return when {
-            item.isCenteredSystemLike(rootBounds) -> ChatRole.SYSTEM
             rightRatio > 0.66f && centerRatio > 0.48f -> ChatRole.ME
             leftRatio < 0.40f && centerRatio < 0.58f -> ChatRole.FRIEND
             centerRatio > 0.60f -> ChatRole.ME
             centerRatio < 0.50f -> ChatRole.FRIEND
+            item.isCenteredSystemLike(rootBounds) -> ChatRole.UNKNOWN
             else -> ChatRole.UNKNOWN
         }
     }

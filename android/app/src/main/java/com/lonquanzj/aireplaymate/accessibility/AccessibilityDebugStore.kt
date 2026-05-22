@@ -100,8 +100,6 @@ object AccessibilityDebugStore {
     }
 }
 
-const val WECHAT_PACKAGE_NAME = "com.tencent.mm"
-
 private val ChatRole.label: String
     get() = when (this) {
         ChatRole.ME -> "我"
