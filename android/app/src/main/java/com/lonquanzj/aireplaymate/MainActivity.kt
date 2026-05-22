@@ -9,12 +9,10 @@ import android.provider.Settings
 import android.provider.Settings.Secure
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,7 +42,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -53,7 +50,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -83,16 +79,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
-import com.lonquanzj.aireplaymate.accessibility.ChatMessage
-import com.lonquanzj.aireplaymate.accessibility.ChatRole
-import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
-import com.lonquanzj.aireplaymate.context.ChatContext
-import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
-import com.lonquanzj.aireplaymate.demo.DemoAuthor
-import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.llm.LlmDebugState
 import com.lonquanzj.aireplaymate.llm.LlmDebugStore
 import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
@@ -109,7 +98,6 @@ import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsStore
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceState
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
-import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
@@ -125,10 +113,7 @@ import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
-import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
-import com.lonquanzj.aireplaymate.session.SessionState
-import com.lonquanzj.aireplaymate.session.SessionUiState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -194,8 +179,6 @@ private fun MainScreen(
     loadAppSettings: () -> AppSettings,
     saveAppSettings: (AppSettings) -> Unit
 ) {
-    val sessionManager = remember { DemoSessionManager() }
-    val sessionState by sessionManager.state.collectAsState()
     var permissionSnapshot by remember { mutableStateOf(loadPermissionSnapshot()) }
     var appSettings by remember { mutableStateOf(loadAppSettings()) }
     var testingLlm by remember { mutableStateOf(false) }
@@ -209,7 +192,6 @@ private fun MainScreen(
         mutableStateOf(ReplyStyleCatalogStore.load(context))
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val overlayTrigger by OverlayTriggerStore.request.collectAsState()
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
     val mediaProjectionManager = remember(context) {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -227,12 +209,6 @@ private fun MainScreen(
         }
     }
 
-    LaunchedEffect(overlayTrigger?.id) {
-        val request = overlayTrigger ?: return@LaunchedEffect
-        sessionManager.run(debugState = request.debugState, styleProfile = replyStyleProfile.asDefaultReply())
-        OverlayTriggerStore.consume(request.id)
-    }
-
     LaunchedEffect(Unit) {
         LlmDebugStore.state.collect { state ->
             DiagnosticLogStore.recordLlm(state)
@@ -248,99 +224,6 @@ private fun MainScreen(
     LaunchedEffect(Unit) {
         OverlayDiagnosticsStore.state.collect { state ->
             DiagnosticLogStore.recordOverlay(state)
-        }
-    }
-
-    if (sessionState.showCandidateSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        BackHandler {
-            sessionManager.cancelCandidateSelection("用户关闭候选面板，本次生成已取消")
-        }
-
-        ModalBottomSheet(
-            onDismissRequest = {
-                sessionManager.cancelCandidateSelection("候选面板已收起，等待再次触发")
-            },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "候选回复",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "这一步对应真实产品里的 BottomSheet。用户选择后才会执行填入，不会自动发送。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                sessionState.candidates.forEach { candidate ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                scope.launch {
-                                    sessionManager.selectCandidate(candidate)
-                                }
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                        ),
-                        shape = RoundedCornerShape(24.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = candidate.text,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "风格：${candidate.tone}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            sessionManager.regenerateCandidates(replyStyleProfile.asDefaultReply())
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp)
-                    ) {
-                        Text("重新生成")
-                    }
-
-                    Button(
-                        onClick = {
-                            sessionManager.cancelCandidateSelection("本次生成已结束，可重新触发")
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp)
-                    ) {
-                        Text("稍后再选")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-            }
         }
     }
 
@@ -447,9 +330,6 @@ private fun MainScreen(
 
                         HomeTab.ADVANCED -> {
                             AdvancedTabContent(
-                                sessionManager = sessionManager,
-                                sessionState = sessionState,
-                                replyStyleProfile = replyStyleProfile,
                                 mediaProjectionManager = mediaProjectionManager
                             )
                         }
@@ -657,50 +537,6 @@ internal fun buildOverlayDebugSnapshot(debugState: OverlayDiagnosticsState): Str
             debugState.steps.forEach(::appendLine)
         }
     }
-}
-
-internal fun List<ChatMessage>.toPreviewMessages(): List<DemoMessage> {
-    return takeLast(8).map { message ->
-        DemoMessage(
-            author = when (message.role) {
-                ChatRole.ME -> DemoAuthor.ME
-                ChatRole.FRIEND -> DemoAuthor.FRIEND
-                ChatRole.SYSTEM -> DemoAuthor.SYSTEM
-                ChatRole.UNKNOWN -> DemoAuthor.FRIEND
-            },
-            content = message.content
-        )
-    }
-}
-
-internal fun List<DemoMessage>.toPromptPreviewContext(): ChatContext {
-    val messages = if (isEmpty()) {
-        listOf(
-            DemoMessage(DemoAuthor.FRIEND, "今晚有空聊会儿吗？"),
-            DemoMessage(DemoAuthor.ME, "我刚忙完，正准备回你")
-        )
-    } else {
-        this
-    }
-    return ChatContext(
-        messages = messages.mapIndexed { index, message ->
-            ChatMessage(
-                id = "prompt_preview_$index",
-                role = when (message.author) {
-                    DemoAuthor.ME -> ChatRole.ME
-                    DemoAuthor.FRIEND -> ChatRole.FRIEND
-                    DemoAuthor.SYSTEM -> ChatRole.SYSTEM
-                },
-                content = message.content,
-                timestamp = null,
-                source = MessageSource.ACCESSIBILITY,
-                confidence = 1f
-            )
-        },
-        targetApp = "wechat",
-        conversationType = ConversationType.SINGLE_CHAT,
-        collectedAt = System.currentTimeMillis()
-    )
 }
 
 internal fun formatTimestamp(timestamp: Long): String {

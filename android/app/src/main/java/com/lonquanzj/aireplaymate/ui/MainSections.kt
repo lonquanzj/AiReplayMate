@@ -9,7 +9,6 @@ import android.provider.Settings
 import android.provider.Settings.Secure
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,10 +40,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -53,7 +50,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -82,18 +78,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
-import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.ChatMessage
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
-import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.accessibility.ReplyAccessibilityService
 import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogState
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
-import com.lonquanzj.aireplaymate.demo.DemoAuthor
-import com.lonquanzj.aireplaymate.demo.DemoMessage
 import com.lonquanzj.aireplaymate.llm.LlmDebugState
 import com.lonquanzj.aireplaymate.llm.LlmDebugStore
 import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
@@ -110,7 +102,6 @@ import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsStore
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceState
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
-import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.ContextSendPolicy
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
@@ -127,10 +118,7 @@ import com.lonquanzj.aireplaymate.settings.AppSettingsValidation
 import com.lonquanzj.aireplaymate.settings.AppSettingsValidator
 import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
-import com.lonquanzj.aireplaymate.session.DemoSessionManager
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
-import com.lonquanzj.aireplaymate.session.SessionState
-import com.lonquanzj.aireplaymate.session.SessionUiState
 import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -152,18 +140,14 @@ internal fun MainTabContent(
     val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
     val debugState by AccessibilityDebugStore.state.collectAsState()
     val previewContextState by ReplyContextPreviewStore.state.collectAsState()
-    val sessionManager = remember { DemoSessionManager() }
-    val sessionState by sessionManager.state.collectAsState()
 
     val previewMessages = remember(
-        sessionState.extractedMessages,
         previewContextState.messages,
         debugState.extractedMessages
     ) {
         when {
-            sessionState.extractedMessages.isNotEmpty() -> sessionState.extractedMessages
-            previewContextState.messages.isNotEmpty() -> previewContextState.messages.toPreviewMessages()
-            else -> debugState.extractedMessages.toPreviewMessages()
+            previewContextState.messages.isNotEmpty() -> previewContextState.messages
+            else -> debugState.extractedMessages
         }
     }
     val previewConversationTitle = previewContextState.conversationTitle ?: debugState.conversationTitle
@@ -284,9 +268,6 @@ internal fun StyleTabContent(
 
 @Composable
 internal fun AdvancedTabContent(
-    sessionManager: DemoSessionManager,
-    sessionState: SessionUiState,
-    replyStyleProfile: ReplyStyleProfile,
     mediaProjectionManager: MediaProjectionManager
 ) {
     val debugState by AccessibilityDebugStore.state.collectAsState()
@@ -326,41 +307,6 @@ internal fun AdvancedTabContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        HeroCard(
-            currentStage = sessionState.currentState,
-            stageDetail = sessionState.statusNote ?: sessionState.currentState.detail,
-            isRunning = sessionState.isRunning,
-            conversationTitle = debugState.conversationTitle,
-            serviceConnected = debugState.serviceConnected,
-            onRun = {
-                if (!sessionState.isRunning) {
-                    scope.launch {
-                        sessionManager.run(debugState, replyStyleProfile.asDefaultReply())
-                    }
-                }
-            },
-            onReset = {
-                if (!sessionState.isRunning) {
-                    sessionManager.reset()
-                }
-            }
-        )
-
-        SessionStageSection(
-            currentStage = sessionState.currentState,
-            progressStage = sessionState.progressState
-        )
-
-        ReplyDraftSection(
-            replyDraft = sessionState.replyDraft,
-            onReplyDraftChange = sessionManager::updateReplyDraft,
-            onTryRealAutofill = {
-                val result = AccessibilityActionBridge.tryAutofill(sessionState.replyDraft)
-                sessionManager.noteRealAutofillResult(result.message)
-            },
-            canTryRealAutofill = sessionState.replyDraft.isNotBlank()
-        )
-
         OcrFallbackSection(
             debugState = ocrDebugState,
             capturePermissionState = ocrCapturePermissionState,
@@ -403,8 +349,6 @@ internal fun AdvancedTabContent(
         )
 
         DiagnosticLogSection(logState = diagnosticLogState)
-
-        ActivityLogSection(entries = sessionState.activityLog)
 
         Spacer(modifier = Modifier.height(24.dp))
     }
@@ -557,109 +501,6 @@ private fun DailyStatusItem(
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold
             )
-        }
-    }
-}
-
-@Composable
-private fun HeroCard(
-    currentStage: SessionState,
-    stageDetail: String,
-    isRunning: Boolean,
-    conversationTitle: String?,
-    serviceConnected: Boolean,
-    onRun: () -> Unit,
-    onReset: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
-            ) {
-                Text(
-                    text = "正式版",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Text(
-                text = conversationTitle ?: "准备生成微信回复",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = if (serviceConnected) {
-                    "基于当前聊天上下文生成候选回复，用户确认后才会填入，不会自动发送。"
-                } else {
-                    "进入微信单聊页并保持无障碍服务可用后，即可基于真实上下文生成候选回复。"
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (isRunning) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant
-                )
-            }
-
-            Text(
-                text = "当前阶段：${currentStage.title}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Text(
-                text = stageDetail,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = onRun,
-                    enabled = !isRunning,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        if (currentStage == SessionState.IDLE) {
-                            "开始生成"
-                        } else {
-                            "重新生成"
-                        }
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onReset,
-                    enabled = !isRunning,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("清空状态")
-                }
-            }
         }
     }
 }
@@ -2304,93 +2145,9 @@ private fun StatusRow(
 }
 
 @Composable
-private fun SessionStageSection(
-    currentStage: SessionState,
-    progressStage: SessionState
-) {
-    val steps = listOf(
-        SessionState.VALIDATING_TARGET,
-        SessionState.COLLECTING_ACCESSIBILITY,
-        SessionState.COLLECTING_OCR,
-        SessionState.BUILDING_CONTEXT,
-        SessionState.REQUESTING_LLM,
-        SessionState.CANDIDATE_READY,
-        SessionState.AUTOFILLING,
-        SessionState.DONE
-    )
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "主链路状态",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                steps.forEachIndexed { index, step ->
-                    val stateText = when {
-                        step == currentStage -> "进行中"
-                        progressStage.progress >= step.progress -> "已完成"
-                        else -> "待执行"
-                    }
-
-                    val toneColor = when (stateText) {
-                        "进行中" -> MaterialTheme.colorScheme.secondary
-                        "已完成" -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.outline
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(10.dp)
-                                .height(10.dp)
-                                .clip(CircleShape)
-                                .background(toneColor)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = step.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = step.detail,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = stateText,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = toneColor
-                        )
-                    }
-
-                    if (index != steps.lastIndex) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ConversationPreviewSection(
     conversationTitle: String?,
-    messages: List<DemoMessage>
+    messages: List<ChatMessage>
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -2439,12 +2196,13 @@ private fun ConversationPreviewSection(
 }
 
 @Composable
-private fun MessageBubble(message: DemoMessage) {
-    val isMine = message.author == DemoAuthor.ME
-    val bubbleColor = when (message.author) {
-        DemoAuthor.ME -> MaterialTheme.colorScheme.secondaryContainer
-        DemoAuthor.FRIEND -> MaterialTheme.colorScheme.surface
-        DemoAuthor.SYSTEM -> MaterialTheme.colorScheme.primaryContainer
+private fun MessageBubble(message: ChatMessage) {
+    val isMine = message.role == ChatRole.ME
+    val bubbleColor = when (message.role) {
+        ChatRole.ME -> MaterialTheme.colorScheme.secondaryContainer
+        ChatRole.FRIEND -> MaterialTheme.colorScheme.surface
+        ChatRole.SYSTEM -> MaterialTheme.colorScheme.primaryContainer
+        ChatRole.UNKNOWN -> MaterialTheme.colorScheme.surface
     }
     val textColor = MaterialTheme.colorScheme.onSurface
 
@@ -2462,109 +2220,6 @@ private fun MessageBubble(message: DemoMessage) {
                 color = textColor,
                 style = MaterialTheme.typography.bodyLarge
             )
-        }
-    }
-}
-
-@Composable
-private fun ReplyDraftSection(
-    replyDraft: String,
-    onReplyDraftChange: (String) -> Unit,
-    onTryRealAutofill: () -> Unit,
-    canTryRealAutofill: Boolean
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "模拟输入框",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        OutlinedTextField(
-            value = replyDraft,
-            onValueChange = onReplyDraftChange,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            minLines = 4,
-            label = { Text("用户最终可编辑后再发送") },
-            placeholder = { Text("选择候选后，文本会自动填到这里") },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Button(
-                onClick = onTryRealAutofill,
-                enabled = canTryRealAutofill,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("尝试真实填入")
-            }
-
-            OutlinedButton(
-                onClick = { onReplyDraftChange("") },
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("清空草稿")
-            }
-        }
-
-        Text(
-            text = "这个按钮会调用无障碍服务，尝试把当前草稿直接写进真实输入框。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun ActivityLogSection(entries: List<String>) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "运行日志",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (entries.isEmpty()) {
-                    Text(
-                        text = "还没有开始生成。点击上面的按钮后，这里会按阶段记录主链路进度。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    entries.takeLast(6).forEachIndexed { index, item ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Text(
-                                text = "${index + 1}.",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                            Text(
-                                text = item,
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
