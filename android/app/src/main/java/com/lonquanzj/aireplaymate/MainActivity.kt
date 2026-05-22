@@ -1,18 +1,14 @@
 package com.lonquanzj.aireplaymate
 
-import android.app.Activity
 import android.content.Intent
 import android.content.Context
-import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.provider.Settings.Secure
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,8 +84,6 @@ import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
 import com.lonquanzj.aireplaymate.ocr.AndroidScreenCaptureProvider
 import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
-import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionState
-import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStore
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureState
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureStore
 import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
@@ -193,10 +187,6 @@ private fun MainScreen(
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
-    val mediaProjectionManager = remember(context) {
-        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-    }
-
     DisposableEffect(lifecycleOwner, loadPermissionSnapshot) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -329,9 +319,7 @@ private fun MainScreen(
                         }
 
                         HomeTab.ADVANCED -> {
-                            AdvancedTabContent(
-                                mediaProjectionManager = mediaProjectionManager
-                            )
+                            AdvancedTabContent()
                         }
                     }
                 }
@@ -436,15 +424,12 @@ internal fun buildAccessibilityDebugSnapshot(
 
 internal fun buildOcrDebugSnapshot(
     debugState: OcrDebugState,
-    capturePermissionState: OcrCapturePermissionState,
     screenCaptureState: OcrScreenCaptureState
 ): String {
     return buildString {
         appendLine("AiReplayMate OCR Debug Snapshot")
         appendLine("updatedAt=${formatTimestamp(debugState.updatedAtMillis)}")
-        appendLine("capturePermission=${capturePermissionState.status.label}")
-        appendLine("captureReady=${capturePermissionState.isReady}")
-        appendLine("captureUpdatedAt=${formatTimestamp(capturePermissionState.updatedAtMillis)}")
+        appendLine("captureSource=accessibility")
         appendLine("screenCaptureStatus=${screenCaptureState.status.label}")
         appendLine("screenCaptureMessage=${screenCaptureState.message}")
         appendLine("screenCaptureSize=${screenCaptureState.sizeLabel}")

@@ -1,17 +1,12 @@
 package com.lonquanzj.aireplaymate
 
-import android.app.Activity
-import android.content.Intent
 import android.content.Context
-import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.provider.Settings.Secure
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -92,9 +87,6 @@ import com.lonquanzj.aireplaymate.llm.OpenAiCompatibleLlmGateway
 import com.lonquanzj.aireplaymate.ocr.AndroidScreenCaptureProvider
 import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
-import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionState
-import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStatus
-import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStore
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureState
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureStore
 import com.lonquanzj.aireplaymate.ocr.MlKitChineseOcrEngine
@@ -268,12 +260,9 @@ internal fun StyleTabContent(
 }
 
 @Composable
-internal fun AdvancedTabContent(
-    mediaProjectionManager: MediaProjectionManager
-) {
+internal fun AdvancedTabContent() {
     val debugState by AccessibilityDebugStore.state.collectAsState()
     val ocrDebugState by OcrDebugStore.state.collectAsState()
-    val ocrCapturePermissionState by OcrCapturePermissionStore.state.collectAsState()
     val ocrScreenCaptureState by OcrScreenCaptureStore.state.collectAsState()
     val overlayDiagnosticsState by OverlayDiagnosticsStore.state.collectAsState()
     val diagnosticLogState by DiagnosticLogStore.state.collectAsState()
@@ -281,24 +270,6 @@ internal fun AdvancedTabContent(
     val context = LocalContext.current
     var testingScreenCapture by remember { mutableStateOf(false) }
     var testingOcrRecognition by remember { mutableStateOf(false) }
-
-    val screenCapturePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        OcrCapturePermissionStore.onPermissionResult(
-            resultCode = result.resultCode,
-            data = result.data
-        )
-        Toast.makeText(
-            context,
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                "屏幕截图授权已就绪"
-            } else {
-                "屏幕截图授权未完成"
-            },
-            Toast.LENGTH_SHORT
-        ).show()
-    }
 
     Column(
         modifier = Modifier
@@ -310,20 +281,14 @@ internal fun AdvancedTabContent(
     ) {
         OcrFallbackSection(
             debugState = ocrDebugState,
-            capturePermissionState = ocrCapturePermissionState,
             screenCaptureState = ocrScreenCaptureState,
             isTestingScreenCapture = testingScreenCapture,
             isTestingOcrRecognition = testingOcrRecognition,
-            onRequestCapturePermission = {
-                screenCapturePermissionLauncher.launch(
-                    mediaProjectionManager.createScreenCaptureIntent()
-                )
-            },
             onTestScreenCapture = {
                 scope.launch {
                     testingScreenCapture = true
                     val result = AndroidScreenCaptureProvider(context.applicationContext)
-                        .captureOnce(ocrCapturePermissionState)
+                        .captureOnce()
                     testingScreenCapture = false
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                 }
@@ -339,10 +304,6 @@ internal fun AdvancedTabContent(
                     testingOcrRecognition = false
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                 }
-            },
-            onStopCaptureSession = {
-                AndroidScreenCaptureProvider(context.applicationContext).stopSession()
-                Toast.makeText(context, "已停止 OCR 截图会话", Toast.LENGTH_SHORT).show()
             }
         )
 
@@ -1939,14 +1900,11 @@ private fun RealAccessibilitySection(
 @Composable
 private fun OcrFallbackSection(
     debugState: OcrDebugState,
-    capturePermissionState: OcrCapturePermissionState,
     screenCaptureState: OcrScreenCaptureState,
     isTestingScreenCapture: Boolean,
     isTestingOcrRecognition: Boolean,
-    onRequestCapturePermission: () -> Unit,
     onTestScreenCapture: () -> Unit,
-    onTestOcrRecognition: () -> Unit,
-    onStopCaptureSession: () -> Unit
+    onTestOcrRecognition: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -1967,24 +1925,14 @@ private fun OcrFallbackSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (capturePermissionState.status == OcrCapturePermissionStatus.ACTIVE) {
-                        "OCR 截图会话正在运行；后续识别会复用当前会话，不需要反复授权。"
-                    } else if (capturePermissionState.isReady) {
-                        "屏幕截图授权已准备好；首次截图会启动可复用的 OCR 截图会话。"
-                    } else {
-                        "当前已接入 OCR 兜底入口和诊断；先授权屏幕截图，后续会在同一会话内复用。"
-                    },
+                    text = "OCR 兜底使用无障碍服务截图，不再请求投屏授权。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 StatusRow(
-                    label = "截图授权",
-                    value = capturePermissionState.status.label
-                )
-                StatusRow(
-                    label = "授权时间",
-                    value = formatTimestamp(capturePermissionState.updatedAtMillis)
+                    label = "截图方式",
+                    value = "无障碍服务"
                 )
                 StatusRow(
                     label = "OCR 引擎",
@@ -2045,29 +1993,19 @@ private fun OcrFallbackSection(
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                Button(
-                    onClick = onRequestCapturePermission,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (capturePermissionState.isReady) "重新授权屏幕截图" else "授权屏幕截图")
-                }
-
                 OutlinedButton(
                     onClick = onTestScreenCapture,
-                    enabled = capturePermissionState.canCapture &&
-                        !isTestingScreenCapture &&
+                    enabled = !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (isTestingScreenCapture) "取图中..." else "测试截图数据流")
+                    Text(if (isTestingScreenCapture) "取图中..." else "测试无障碍截图")
                 }
 
                 OutlinedButton(
                     onClick = onTestOcrRecognition,
-                    enabled = capturePermissionState.canCapture &&
-                        !isTestingScreenCapture &&
+                    enabled = !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -2076,23 +2014,11 @@ private fun OcrFallbackSection(
                 }
 
                 OutlinedButton(
-                    onClick = onStopCaptureSession,
-                    enabled = capturePermissionState.status == OcrCapturePermissionStatus.ACTIVE &&
-                        !isTestingScreenCapture &&
-                        !isTestingOcrRecognition,
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("停止 OCR 截图会话")
-                }
-
-                OutlinedButton(
                     onClick = {
                         clipboardManager.setText(
                             AnnotatedString(
                                 buildOcrDebugSnapshot(
                                     debugState = debugState,
-                                    capturePermissionState = capturePermissionState,
                                     screenCaptureState = screenCaptureState
                                 )
                             )
@@ -2100,7 +2026,6 @@ private fun OcrFallbackSection(
                         Toast.makeText(context, "已复制 OCR 诊断", Toast.LENGTH_SHORT).show()
                     },
                     enabled = debugState.updatedAtMillis > 0L ||
-                        capturePermissionState.updatedAtMillis > 0L ||
                         screenCaptureState.updatedAtMillis > 0L,
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()

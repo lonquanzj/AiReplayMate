@@ -21,7 +21,7 @@ class MlKitChineseOcrEngine(
         reason: String
     ): OcrAttemptResult {
         val captureResult = AndroidScreenCaptureProvider(context)
-            .captureOnce(OcrCapturePermissionStore.state.value)
+            .captureOnce()
         val bitmap = captureResult.bitmap
         if (!captureResult.success || bitmap == null) {
             return finish(

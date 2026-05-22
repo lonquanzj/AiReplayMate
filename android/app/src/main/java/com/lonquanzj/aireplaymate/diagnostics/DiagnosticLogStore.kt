@@ -85,7 +85,7 @@ object DiagnosticLogStore {
                 title = state.lastCategory.label,
                 summary = state.lastStatus,
                 hint = if (state.extractedMessages.isEmpty()) {
-                    "OCR 未产出可用消息时，可确认截图授权是否仍有效，并切回微信单聊页后重试。"
+                    "OCR 未产出可用消息时，可确认无障碍服务是否已开启，并切回微信单聊页后重试。"
                 } else {
                     "OCR 已产出候选消息，可继续观察是否需要后续真机样本调参。"
                 },
