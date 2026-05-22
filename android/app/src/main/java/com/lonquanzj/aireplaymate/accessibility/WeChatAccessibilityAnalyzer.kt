@@ -12,7 +12,89 @@ data class WeChatInspectionResult(
     val extractedMessages: List<ChatMessage>
 )
 
+data class WindowSignalSnapshot(
+    val editableNodeCount: Int,
+    val visibleTextSample: List<String>,
+    val inspection: WeChatInspectionResult
+)
+
 object WeChatAccessibilityAnalyzer {
+    fun inspectWindow(
+        packageName: String,
+        root: AccessibilityNodeInfo?
+    ): WindowSignalSnapshot {
+        if (packageName != WECHAT_PACKAGE_NAME) {
+            return WindowSignalSnapshot(
+                editableNodeCount = 0,
+                visibleTextSample = emptyList(),
+                inspection = WeChatInspectionResult(
+                    looksLikeChatPage = false,
+                    reason = "当前不是微信包名",
+                    conversationTitle = null,
+                    inputNodeFound = false,
+                    inputNodeHint = null,
+                    extractedMessages = emptyList()
+                )
+            )
+        }
+
+        if (root == null) {
+            return WindowSignalSnapshot(
+                editableNodeCount = 0,
+                visibleTextSample = emptyList(),
+                inspection = WeChatInspectionResult(
+                    looksLikeChatPage = false,
+                    reason = "当前窗口根节点为空",
+                    conversationTitle = null,
+                    inputNodeFound = false,
+                    inputNodeHint = null,
+                    extractedMessages = emptyList()
+                )
+            )
+        }
+
+        val signals = WindowNodeSignals()
+        collectWindowSignals(root, signals)
+        val rootBounds = Rect().also(root::getBoundsInScreen)
+
+        val hasChatControl = signals.collectedTexts.any { node ->
+            node.text.contains("发送") ||
+                node.text.contains("按住说话") ||
+                node.text.contains("语音输入") ||
+                node.text.contains("更多功能") ||
+                node.text.equals("+", ignoreCase = true) ||
+                node.text.contains("send", ignoreCase = true) ||
+                node.text.contains("voice", ignoreCase = true) ||
+                node.text.contains("more", ignoreCase = true)
+        }
+
+        val inputNode = pickChatInputNode(signals.editableNodes)
+        val title = detectConversationTitle(signals.collectedTexts)
+        val messages = extractMessages(signals.collectedTexts, title, rootBounds, inputNode)
+        val looksLikeChatPage = hasChatControl || messages.size >= 2 || inputNode != null
+
+        val reason = buildString {
+            append(if (inputNode != null) "已找到输入框" else "未找到输入框")
+            append("，")
+            append(if (hasChatControl) "命中聊天控件" else "未命中聊天控件")
+            append("，")
+            append("提取到 ${messages.size} 条候选消息")
+        }
+
+        return WindowSignalSnapshot(
+            editableNodeCount = signals.editableNodeCount,
+            visibleTextSample = signals.visibleTexts.take(VISIBLE_TEXT_SAMPLE_LIMIT),
+            inspection = WeChatInspectionResult(
+                looksLikeChatPage = looksLikeChatPage,
+                reason = reason,
+                conversationTitle = title,
+                inputNodeFound = inputNode != null,
+                inputNodeHint = inputNode?.hintText?.toString()?.trim()?.ifEmpty { null }
+                    ?: inputNode?.text?.toString()?.trim()?.ifEmpty { null },
+                extractedMessages = messages
+            )
+        )
+    }
     fun inspect(
         packageName: String,
         root: AccessibilityNodeInfo?
@@ -291,6 +373,63 @@ object WeChatAccessibilityAnalyzer {
         CONTENT_DESCRIPTION
     }
 
+    private class WindowNodeSignals {
+        val collectedTexts = mutableListOf<NodeText>()
+        val editableNodes = mutableListOf<AccessibilityNodeInfo>()
+        val visibleTexts = linkedSetOf<String>()
+        var editableNodeCount = 0
+    }
+
+    private fun collectWindowSignals(
+        node: AccessibilityNodeInfo,
+        signals: WindowNodeSignals
+    ) {
+        val bounds = Rect().also(node::getBoundsInScreen)
+        val text = node.text?.toString()?.trim().orEmpty()
+        val description = node.contentDescription?.toString()?.trim().orEmpty()
+        val className = node.className?.toString().orEmpty()
+
+        if (node.isEditable || className.contains("EditText")) {
+            signals.editableNodes += node
+            signals.editableNodeCount += 1
+        }
+
+        if (text.isNotEmpty()) {
+            signals.visibleTexts += text
+            signals.collectedTexts += NodeText(
+                text = text,
+                source = NodeTextSource.TEXT,
+                className = className,
+                isEditable = node.isEditable,
+                isClickable = node.isClickable,
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom
+            )
+        }
+
+        if (description.isNotEmpty()) {
+            signals.visibleTexts += description
+            signals.collectedTexts += NodeText(
+                text = description,
+                source = NodeTextSource.CONTENT_DESCRIPTION,
+                className = className,
+                isEditable = node.isEditable,
+                isClickable = node.isClickable,
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom
+            )
+        }
+
+        for (index in 0 until node.childCount) {
+            val child = node.getChild(index) ?: continue
+            collectWindowSignals(child, signals)
+        }
+    }
+
     private fun NodeText.isMessageCandidate(
         title: String?,
         inputBounds: Rect?,
@@ -363,6 +502,7 @@ object WeChatAccessibilityAnalyzer {
     )
 
     private const val MAX_EXTRACTED_MESSAGES = 12
+    private const val VISIBLE_TEXT_SAMPLE_LIMIT = 6
     private const val MAX_MESSAGE_TEXT_LENGTH = 180
     private const val MIN_MESSAGE_TOP_OFFSET = 132
     private const val INPUT_AREA_PADDING = 24

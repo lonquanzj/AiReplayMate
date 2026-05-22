@@ -49,6 +49,7 @@ data class LlmDebugState(
     val httpStatus: Int? = null,
     val candidateCount: Int = 0,
     val failureCategory: LlmFailureCategory = LlmFailureCategory.NONE,
+    val requestPreview: String? = null,
     val responsePreview: String? = null,
     val errorSummary: String? = null,
     val recoveryHint: String = "暂无建议",
@@ -81,13 +82,15 @@ object LlmDebugStore {
 
     fun onRequestStarted(
         baseUrl: String,
-        model: String
+        model: String,
+        requestPreview: String
     ) {
         val current = _state.value
         _state.value = LlmDebugState(
             phase = LlmDebugPhase.REQUESTING,
             baseUrl = baseUrl,
             model = model,
+            requestPreview = requestPreview.compactPreview(),
             recoveryHint = "正在请求模型，请稍等；若长时间无响应，优先检查网络或代理。",
             updatedAtMillis = System.currentTimeMillis(),
             history = current.history

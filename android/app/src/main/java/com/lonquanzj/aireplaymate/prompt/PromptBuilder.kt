@@ -22,7 +22,7 @@ object DefaultPromptBuilder : PromptBuilder {
         val candidateCount = settings.candidateCount.coerceAtLeast(1)
         return LlmRequest(
             systemPrompt = buildSystemPrompt(styleProfile),
-            userPrompt = buildUserPrompt(context, candidateCount, styleProfile, draftText),
+            userPrompt = buildUserPrompt(context, candidateCount, styleProfile, draftText, settings.contextSendPolicy),
             temperature = settings.temperature.coerceIn(0f, 2f),
             maxTokens = settings.maxTokens.coerceAtLeast(120),
             candidateCount = candidateCount
@@ -55,10 +55,16 @@ object DefaultPromptBuilder : PromptBuilder {
         context: ChatContext,
         candidateCount: Int,
         styleProfile: ReplyStyleProfile,
-        draftText: String?
+        draftText: String?,
+        contextSendPolicy: ContextSendPolicy
     ): String {
         return when (styleProfile.mode) {
-            ReplyStyleMode.QUICK_REPLY -> buildQuickReplyPrompt(context, candidateCount, styleProfile)
+            ReplyStyleMode.QUICK_REPLY -> buildQuickReplyPrompt(
+                context = context,
+                candidateCount = candidateCount,
+                styleProfile = styleProfile,
+                contextSendPolicy = contextSendPolicy
+            )
             ReplyStyleMode.PLAYBOOK -> buildPlaybookPrompt(candidateCount, styleProfile)
             ReplyStyleMode.POLISH -> buildPolishPrompt(candidateCount, styleProfile, draftText.orEmpty())
         }
@@ -67,10 +73,26 @@ object DefaultPromptBuilder : PromptBuilder {
     private fun buildQuickReplyPrompt(
         context: ChatContext,
         candidateCount: Int,
-        styleProfile: ReplyStyleProfile
+        styleProfile: ReplyStyleProfile,
+        contextSendPolicy: ContextSendPolicy
     ): String {
         val visibleMessages = context.messages.takeLast(MAX_PROMPT_MESSAGES)
-        val latestFriendMessage = visibleMessages.lastOrNull { it.role == ChatRole.FRIEND }
+        val latestFriendMessage = when (contextSendPolicy) {
+            ContextSendPolicy.FULL_CONTEXT -> visibleMessages.lastOrNull { it.role == ChatRole.FRIEND }
+            ContextSendPolicy.LATEST_FRIEND_MESSAGE -> context.messages.lastOrNull { it.role == ChatRole.FRIEND }
+        }
+        if (contextSendPolicy == ContextSendPolicy.LATEST_FRIEND_MESSAGE) {
+            return buildString {
+                appendLine("下面是微信单聊里最近一条对方消息。")
+                appendLine("请基于这条消息生成 $candidateCount 条中文候选回复，要求自然、简洁、可直接填入输入框。")
+                appendLine("本次角色：${styleProfile.personaConfig.label}。")
+                appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
+                appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
+                appendLine()
+                appendLine("最近一条对方消息：")
+                appendLine(latestFriendMessage?.content.safeForPrompt("未识别到明确的对方消息"))
+            }
+        }
         return buildString {
             appendLine("下面是微信单聊的最近聊天上下文。")
             appendLine("请基于上下文生成 $candidateCount 条中文候选回复，要求自然、简洁、可直接填入输入框。")

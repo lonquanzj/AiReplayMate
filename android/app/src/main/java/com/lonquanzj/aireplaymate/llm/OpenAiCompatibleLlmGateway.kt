@@ -30,9 +30,11 @@ class OpenAiCompatibleLlmGateway(
 
         return withContext(Dispatchers.IO) {
             runCatching {
+                val requestJson = request.toOpenAiJson(settings.model)
                 LlmDebugStore.onRequestStarted(
                     baseUrl = settings.chatCompletionsUrl(),
-                    model = settings.model
+                    model = settings.model,
+                    requestPreview = requestJson.toString()
                 )
                 val connection = (URL(settings.chatCompletionsUrl()).openConnection() as HttpURLConnection)
                     .apply {
@@ -46,7 +48,7 @@ class OpenAiCompatibleLlmGateway(
                     }
 
                 OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
-                    writer.write(request.toOpenAiJson(settings.model).toString())
+                    writer.write(requestJson.toString())
                 }
 
                 val responseText = connection.readResponseText()

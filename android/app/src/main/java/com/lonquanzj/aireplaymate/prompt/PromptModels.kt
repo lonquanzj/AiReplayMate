@@ -1,5 +1,10 @@
 package com.lonquanzj.aireplaymate.prompt
 
+enum class ContextSendPolicy {
+    FULL_CONTEXT,
+    LATEST_FRIEND_MESSAGE
+}
+
 data class AppSettings(
     val apiKey: String = "",
     val baseUrl: String = "https://api.openai.com/",
@@ -7,7 +12,8 @@ data class AppSettings(
     val temperature: Float = 0.7f,
     val maxTokens: Int = 280,
     val customSystemPrompt: String? = null,
-    val candidateCount: Int = 3
+    val candidateCount: Int = 3,
+    val contextSendPolicy: ContextSendPolicy = ContextSendPolicy.FULL_CONTEXT
 )
 
 data class LlmRequest(

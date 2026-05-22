@@ -112,6 +112,7 @@ import com.lonquanzj.aireplaymate.overlay.OverlayServiceState
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
 import com.lonquanzj.aireplaymate.overlay.OverlayTriggerStore
 import com.lonquanzj.aireplaymate.prompt.AppSettings
+import com.lonquanzj.aireplaymate.prompt.ContextSendPolicy
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
 import com.lonquanzj.aireplaymate.prompt.LlmRequest
 import com.lonquanzj.aireplaymate.prompt.PolishGoalConfig
@@ -870,6 +871,11 @@ private fun LlmSettingsSection(
                     label = { Text("Model") }
                 )
 
+                ContextSendPolicySelector(
+                    selected = settings.contextSendPolicy,
+                    onSelected = { onSettingsChange(settings.copy(contextSendPolicy = it)) }
+                )
+
                 validation.errors.forEach { error ->
                     Text(
                         text = "错误：$error",
@@ -895,6 +901,73 @@ private fun LlmSettingsSection(
                     Text(if (isTesting) "测试中..." else "测试连接")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ContextSendPolicySelector(
+    selected: ContextSendPolicy,
+    onSelected: (ContextSendPolicy) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "发送给 LLM 的上下文",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ContextSendPolicyButton(
+                text = "全部上下文",
+                selected = selected == ContextSendPolicy.FULL_CONTEXT,
+                onClick = { onSelected(ContextSendPolicy.FULL_CONTEXT) },
+                modifier = Modifier.weight(1f)
+            )
+            ContextSendPolicyButton(
+                text = "仅最近对方消息",
+                selected = selected == ContextSendPolicy.LATEST_FRIEND_MESSAGE,
+                onClick = { onSelected(ContextSendPolicy.LATEST_FRIEND_MESSAGE) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            text = when (selected) {
+                ContextSendPolicy.FULL_CONTEXT -> "生成时会发送最多 20 条最近聊天记录。"
+                ContextSendPolicy.LATEST_FRIEND_MESSAGE -> "生成时只发送最近一条对方消息。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ContextSendPolicyButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(18.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+        ) {
+            Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(18.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+        ) {
+            Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -1807,6 +1880,10 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                 StatusRow(
                     label = "建议",
                     value = debugState.recoveryHint
+                )
+                StatusRow(
+                    label = "发送预览",
+                    value = debugState.requestPreview ?: "暂无"
                 )
                 StatusRow(
                     label = "返回预览",

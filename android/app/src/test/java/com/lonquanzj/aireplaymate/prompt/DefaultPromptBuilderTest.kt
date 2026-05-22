@@ -43,6 +43,27 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun build_forQuickReply_withLatestFriendPolicy_sends_only_latest_friend_message() {
+        val request = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(
+                    chatMessage(id = "m1", role = ChatRole.FRIEND, content = "早上那条旧消息"),
+                    chatMessage(id = "m2", role = ChatRole.ME, content = "我自己的回复"),
+                    chatMessage(id = "m3", role = ChatRole.FRIEND, content = "今晚有空吗？")
+                )
+            ),
+            settings = AppSettings(contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertTrue(request.userPrompt.contains("最近一条对方消息"))
+        assertTrue(request.userPrompt.contains("今晚有空吗？"))
+        assertFalse(request.userPrompt.contains("早上那条旧消息"))
+        assertFalse(request.userPrompt.contains("我自己的回复"))
+        assertFalse(request.userPrompt.contains("聊天上下文："))
+    }
+
+    @Test
     fun build_forPlaybook_keeps_identity_prompts_in_user_prompt() {
         val request = DefaultPromptBuilder.build(
             context = chatContext(emptyList()),

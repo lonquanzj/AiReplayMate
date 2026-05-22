@@ -23,32 +23,17 @@ class ReplyAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString().orEmpty()
         val className = event.className?.toString().orEmpty()
-        val root = rootInActiveWindow
-        val editableNodeCount = countEditableNodes(root)
-        val visibleTexts = collectVisibleTexts(root).take(6)
-        val inspection = WeChatAccessibilityAnalyzer.inspect(
-            packageName = packageName,
-            root = root
-        )
         val eventName = eventTypeName(event.eventType)
 
-        Log.d(
-            "AiReplayMate",
-            "event=$eventName, package=$packageName, class=$className, editable=$editableNodeCount, chat=${inspection.looksLikeChatPage}"
-        )
-
-        AccessibilityDebugStore.onWindowEvent(
+        logWindowEventIfNeeded(
             eventName = eventName,
             packageName = packageName,
-            className = className,
-            editableNodeCount = editableNodeCount,
-            visibleTextSample = visibleTexts,
-            looksLikeChatPage = inspection.looksLikeChatPage,
-            chatDetectionReason = inspection.reason,
-            conversationTitle = inspection.conversationTitle,
-            inputNodeFound = inspection.inputNodeFound,
-            inputNodeHint = inspection.inputNodeHint,
-            extractedMessages = inspection.extractedMessages
+            className = className
+        )
+        AccessibilityDebugStore.onLightWindowEvent(
+            eventName = eventName,
+            packageName = packageName,
+            className = className
         )
     }
 
@@ -78,19 +63,19 @@ class ReplyAccessibilityService : AccessibilityService() {
 
         val packageName = root.packageName?.toString().orEmpty()
         val className = root.className?.toString().orEmpty()
-        val editableNodeCount = countEditableNodes(root)
-        val visibleTexts = collectVisibleTexts(root).take(6)
-        val inspection = WeChatAccessibilityAnalyzer.inspect(
+        val snapshot = WeChatAccessibilityAnalyzer.inspectWindow(
             packageName = packageName,
             root = root
         )
+        val inspection = snapshot.inspection
+        val now = System.currentTimeMillis()
         val state = AccessibilityDebugState(
             serviceConnected = true,
             lastEventName = "主动刷新",
             packageName = packageName,
             className = className,
-            editableNodeCount = editableNodeCount,
-            visibleTextSample = visibleTexts,
+            editableNodeCount = snapshot.editableNodeCount,
+            visibleTextSample = snapshot.visibleTextSample,
             isWechatPackage = packageName == WECHAT_PACKAGE_NAME,
             looksLikeChatPage = inspection.looksLikeChatPage,
             chatDetectionReason = inspection.reason,
@@ -102,7 +87,8 @@ class ReplyAccessibilityService : AccessibilityService() {
             lastAutofillCategory = AccessibilityDebugStore.state.value.lastAutofillCategory,
             lastAutofillSteps = AccessibilityDebugStore.state.value.lastAutofillSteps,
             lastAutofillPreview = AccessibilityDebugStore.state.value.lastAutofillPreview,
-            updatedAtMillis = System.currentTimeMillis()
+            lastFullInspectionAtMillis = now,
+            updatedAtMillis = now
         )
 
         AccessibilityDebugStore.setState(state)
@@ -295,49 +281,6 @@ class ReplyAccessibilityService : AccessibilityService() {
         return actual == expected || actual.endsWith(expected)
     }
 
-    private fun countEditableNodes(node: AccessibilityNodeInfo?): Int {
-        if (node == null) return 0
-
-        var count = 0
-        if (node.isEditable) {
-            count += 1
-        }
-
-        for (index in 0 until node.childCount) {
-            count += countEditableNodes(node.getChild(index))
-        }
-
-        return count
-    }
-
-    private fun collectVisibleTexts(node: AccessibilityNodeInfo?): List<String> {
-        if (node == null) return emptyList()
-
-        val results = linkedSetOf<String>()
-        collectVisibleTextsInto(node, results)
-        return results.toList()
-    }
-
-    private fun collectVisibleTextsInto(
-        node: AccessibilityNodeInfo,
-        results: MutableSet<String>
-    ) {
-        val text = node.text?.toString()?.trim().orEmpty()
-        val description = node.contentDescription?.toString()?.trim().orEmpty()
-
-        if (text.isNotEmpty()) {
-            results += text
-        }
-        if (description.isNotEmpty()) {
-            results += description
-        }
-
-        for (index in 0 until node.childCount) {
-            val child = node.getChild(index) ?: continue
-            collectVisibleTextsInto(child, results)
-        }
-    }
-
     private fun eventTypeName(eventType: Int): String = when (eventType) {
         AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "TYPE_WINDOW_STATE_CHANGED"
         AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> "TYPE_WINDOW_CONTENT_CHANGED"
@@ -346,7 +289,28 @@ class ReplyAccessibilityService : AccessibilityService() {
         else -> "TYPE_$eventType"
     }
 
+    private fun logWindowEventIfNeeded(
+        eventName: String,
+        packageName: String,
+        className: String
+    ) {
+        val now = System.currentTimeMillis()
+        val key = "$eventName|$packageName|$className"
+        if (key == lastLoggedEventKey && now - lastLoggedEventAtMillis < EVENT_LOG_THROTTLE_MILLIS) {
+            return
+        }
+        lastLoggedEventKey = key
+        lastLoggedEventAtMillis = now
+        Log.d(
+            "AiReplayMate",
+            "event=$eventName, package=$packageName, class=$className"
+        )
+    }
+
     private companion object {
         const val CLIP_LABEL = "AiReplayMate reply"
+        const val EVENT_LOG_THROTTLE_MILLIS = 1_000L
+        var lastLoggedEventAtMillis = 0L
+        var lastLoggedEventKey = ""
     }
 }

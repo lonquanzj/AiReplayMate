@@ -612,6 +612,7 @@ internal fun buildLlmDebugSnapshot(debugState: LlmDebugState): String {
         appendLine("candidateCount=${debugState.candidateCount}")
         appendLine("errorSummary=${debugState.errorSummary ?: "N/A"}")
         appendLine("recoveryHint=${debugState.recoveryHint}")
+        appendLine("requestPreview=${debugState.requestPreview ?: "N/A"}")
         appendLine("responsePreview=${debugState.responsePreview ?: "N/A"}")
         appendLine()
         appendLine("LLM History:")

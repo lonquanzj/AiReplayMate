@@ -22,6 +22,7 @@ data class AccessibilityDebugState(
     val lastAutofillCategory: AutofillFailureCategory = AutofillFailureCategory.NONE,
     val lastAutofillSteps: List<String> = emptyList(),
     val lastAutofillPreview: String? = null,
+    val lastFullInspectionAtMillis: Long = 0L,
     val updatedAtMillis: Long = 0L
 ) {
     val extractedMessagePreviews: List<String>
@@ -68,6 +69,7 @@ object AccessibilityDebugStore {
         inputNodeHint: String?,
         extractedMessages: List<ChatMessage>
     ) {
+        val now = System.currentTimeMillis()
         _state.value = _state.value.copy(
             lastEventName = eventName,
             packageName = packageName,
@@ -81,6 +83,27 @@ object AccessibilityDebugStore {
             inputNodeFound = inputNodeFound,
             inputNodeHint = inputNodeHint,
             extractedMessages = extractedMessages,
+            lastFullInspectionAtMillis = now,
+            updatedAtMillis = now
+        )
+    }
+
+    fun onLightWindowEvent(
+        eventName: String,
+        packageName: String,
+        className: String
+    ) {
+        val isWechatPackage = packageName == WECHAT_PACKAGE_NAME
+        _state.value = _state.value.copy(
+            lastEventName = eventName,
+            packageName = packageName,
+            className = className,
+            isWechatPackage = isWechatPackage,
+            looksLikeChatPage = if (isWechatPackage) {
+                _state.value.looksLikeChatPage
+            } else {
+                false
+            },
             updatedAtMillis = System.currentTimeMillis()
         )
     }
