@@ -4,10 +4,15 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityEvent
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 class ReplyAccessibilityService : AccessibilityService() {
 
@@ -256,6 +261,63 @@ class ReplyAccessibilityService : AccessibilityService() {
             category = AutofillFailureCategory.NONE,
             steps = steps + "草稿读取：成功，长度 ${draft.length}"
         )
+    }
+
+    suspend fun takeScreenshotBitmap(): AccessibilityScreenshotResult {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return AccessibilityScreenshotResult(
+                success = false,
+                message = "当前系统版本不支持无障碍截图",
+                steps = listOf("无障碍截图：系统版本低于 Android 11")
+            )
+        }
+
+        return suspendCancellableCoroutine { continuation ->
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                mainExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        val hardwareBuffer = screenshot.hardwareBuffer
+                        val bitmap = Bitmap.wrapHardwareBuffer(
+                            hardwareBuffer,
+                            screenshot.colorSpace
+                        )?.copy(Bitmap.Config.ARGB_8888, false)
+                        hardwareBuffer.close()
+
+                        continuation.resume(
+                            if (bitmap == null) {
+                                AccessibilityScreenshotResult(
+                                    success = false,
+                                    message = "无障碍截图转换失败",
+                                    steps = listOf("无障碍截图：Bitmap 转换失败")
+                                )
+                            } else {
+                                AccessibilityScreenshotResult(
+                                    success = true,
+                                    bitmap = bitmap,
+                                    message = "已通过无障碍服务截图",
+                                    steps = listOf(
+                                        "无障碍截图：成功",
+                                        "无障碍截图尺寸：${bitmap.width}x${bitmap.height}"
+                                    )
+                                )
+                            }
+                        )
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        continuation.resume(
+                            AccessibilityScreenshotResult(
+                                success = false,
+                                message = "无障碍截图失败：$errorCode",
+                                steps = listOf("无障碍截图：失败 $errorCode")
+                            )
+                        )
+                    }
+                }
+            )
+        }
     }
 
     private fun AccessibilityNodeInfo.prepareForTextInput() {

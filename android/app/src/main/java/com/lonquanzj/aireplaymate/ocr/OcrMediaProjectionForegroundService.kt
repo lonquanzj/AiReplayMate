@@ -53,7 +53,7 @@ class OcrMediaProjectionForegroundService : Service() {
                 "OCR 截图",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "OCR 兜底截图时短暂运行"
+                description = "OCR 兜底截图会话运行时显示"
             }
         )
     }
@@ -63,7 +63,7 @@ class OcrMediaProjectionForegroundService : Service() {
             Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentTitle("AiReplayMate 正在识别屏幕")
-                .setContentText("用于 OCR 兜底提取聊天文本")
+                .setContentText("OCR 截图会话运行中，可在诊断页停止")
                 .setOngoing(true)
                 .build()
         } else {
@@ -71,7 +71,7 @@ class OcrMediaProjectionForegroundService : Service() {
             Notification.Builder(this)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentTitle("AiReplayMate 正在识别屏幕")
-                .setContentText("用于 OCR 兜底提取聊天文本")
+                .setContentText("OCR 截图会话运行中，可在诊断页停止")
                 .setOngoing(true)
                 .build()
         }

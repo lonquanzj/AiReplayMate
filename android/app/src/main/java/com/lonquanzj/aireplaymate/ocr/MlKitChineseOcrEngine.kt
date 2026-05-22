@@ -53,6 +53,7 @@ class MlKitChineseOcrEngine(
                 "ML Kit 中文文本块：${recognized.chineseBlockCount}",
                 "ML Kit 默认文本块：${recognized.latinBlockCount}",
                 "ML Kit 识别轮次：${recognized.passSummaries.joinToString("；")}",
+                "OCR 输入截图：${recognized.debugImagePaths.joinToString("；").ifBlank { "无" }}",
                 "ML Kit 合并行：${recognized.lines.size}",
                 "OCR 原始行：${processResult.rawLineCount}",
                 "OCR 保留行：${processResult.keptLineCount}",
@@ -108,45 +109,7 @@ class MlKitChineseOcrEngine(
     }
 
     private suspend fun recognizeWithFallbacks(bitmap: Bitmap): MlKitRecognitionResult {
-        val fullPass = recognizePass(
-            bitmap = bitmap,
-            passName = "full",
-            crop = Rect(0, 0, bitmap.width, bitmap.height),
-            scale = 1f
-        )
-        val passResults = mutableListOf(fullPass)
-
-        if (fullPass.lines.isEmpty()) {
-            val crop = Rect(
-                0,
-                (bitmap.height * CHAT_AREA_TOP_RATIO).toInt(),
-                bitmap.width,
-                (bitmap.height * CHAT_AREA_BOTTOM_RATIO).toInt()
-            )
-            val cropped = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width(), crop.height())
-            val scaled = Bitmap.createScaledBitmap(
-                cropped,
-                (cropped.width * CROP_RECOGNITION_SCALE).toInt(),
-                (cropped.height * CROP_RECOGNITION_SCALE).toInt(),
-                true
-            )
-            try {
-                val cropDebugPath = OcrDebugImageWriter.save(
-                    context = context,
-                    bitmap = scaled,
-                    label = "chatCrop${CROP_RECOGNITION_SCALE}x"
-                )
-                passResults += recognizePass(
-                    bitmap = scaled,
-                    passName = "chatCrop${CROP_RECOGNITION_SCALE}x:${cropDebugPath.ifBlank { "saveFailed" }}",
-                    crop = crop,
-                    scale = CROP_RECOGNITION_SCALE
-                )
-            } finally {
-                scaled.recycle()
-                cropped.recycle()
-            }
-        }
+        val passResults = mutableListOf(recognizeChatCrop(bitmap))
 
         return MlKitRecognitionResult(
             chineseBlockCount = passResults.sumOf { it.chineseBlockCount },
@@ -154,8 +117,34 @@ class MlKitChineseOcrEngine(
             lines = passResults.flatMap { it.lines },
             passSummaries = passResults.map {
                 "${it.passName}:zh=${it.chineseBlockCount},latin=${it.latinBlockCount},lines=${it.lines.size}"
-            }
+            },
+            debugImagePaths = passResults.mapNotNull { it.debugImagePath.ifBlank { null } }
         )
+    }
+
+    private suspend fun recognizeChatCrop(bitmap: Bitmap): MlKitRecognitionPassResult {
+        val crop = Rect(
+            0,
+            (bitmap.height * CHAT_AREA_TOP_RATIO).toInt(),
+            bitmap.width,
+            (bitmap.height * CHAT_AREA_BOTTOM_RATIO).toInt()
+        )
+        val cropped = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width(), crop.height())
+        return try {
+            val cropDebugPath = OcrDebugImageWriter.save(
+                context = context,
+                bitmap = cropped,
+                label = "chatCrop1x"
+            )
+            recognizePass(
+                bitmap = cropped,
+                passName = "chatCrop1x:${cropped.width}x${cropped.height}",
+                crop = crop,
+                scale = 1f
+            ).copy(debugImagePath = cropDebugPath)
+        } finally {
+            cropped.recycle()
+        }
     }
 
     private suspend fun recognizePass(
@@ -255,20 +244,21 @@ class MlKitChineseOcrEngine(
         val chineseBlockCount: Int,
         val latinBlockCount: Int,
         val lines: List<OcrRecognizedLine>,
-        val passSummaries: List<String>
+        val passSummaries: List<String>,
+        val debugImagePaths: List<String>
     )
 
     private data class MlKitRecognitionPassResult(
         val passName: String,
         val chineseBlockCount: Int,
         val latinBlockCount: Int,
-        val lines: List<OcrRecognizedLine>
+        val lines: List<OcrRecognizedLine>,
+        val debugImagePath: String = ""
     )
 
     private companion object {
         const val CHAT_AREA_TOP_RATIO = 0.10f
         const val CHAT_AREA_BOTTOM_RATIO = 0.84f
-        const val CROP_RECOGNITION_SCALE = 2.0f
     }
 
 }

@@ -11,6 +11,7 @@ enum class OcrCapturePermissionStatus(
 ) {
     NOT_REQUESTED("未请求"),
     READY("已授权"),
+    ACTIVE("会话中"),
     TOKEN_USED("已使用"),
     DENIED("已拒绝")
 }
@@ -25,6 +26,9 @@ data class OcrCapturePermissionState(
         get() = status == OcrCapturePermissionStatus.READY &&
             resultCode == Activity.RESULT_OK &&
             data != null
+
+    val canCapture: Boolean
+        get() = isReady || status == OcrCapturePermissionStatus.ACTIVE
 }
 
 object OcrCapturePermissionStore {
@@ -48,6 +52,20 @@ object OcrCapturePermissionStore {
     }
 
     fun markTokenUsed() {
+        _state.value = _state.value.copy(
+            status = OcrCapturePermissionStatus.TOKEN_USED,
+            updatedAtMillis = System.currentTimeMillis()
+        )
+    }
+
+    fun markSessionActive() {
+        _state.value = _state.value.copy(
+            status = OcrCapturePermissionStatus.ACTIVE,
+            updatedAtMillis = System.currentTimeMillis()
+        )
+    }
+
+    fun markSessionStopped() {
         _state.value = _state.value.copy(
             status = OcrCapturePermissionStatus.TOKEN_USED,
             updatedAtMillis = System.currentTimeMillis()

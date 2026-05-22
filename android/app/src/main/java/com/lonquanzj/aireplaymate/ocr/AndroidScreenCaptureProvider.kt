@@ -3,6 +3,7 @@ package com.lonquanzj.aireplaymate.ocr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.hardware.display.VirtualDisplay
 import android.hardware.display.DisplayManager
 import android.media.Image
 import android.media.ImageReader
@@ -10,8 +11,11 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
+import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class AndroidScreenCaptureProvider(
@@ -20,84 +24,70 @@ class AndroidScreenCaptureProvider(
     suspend fun captureOnce(
         permissionState: OcrCapturePermissionState
     ): OcrScreenCaptureResult = withContext(Dispatchers.Default) {
-        if (!permissionState.isReady || permissionState.resultCode == null || permissionState.data == null) {
-            return@withContext finish(
-                OcrScreenCaptureResult(
-                    success = false,
-                    status = OcrScreenCaptureStatus.PERMISSION_MISSING,
-                    message = "请先完成屏幕截图授权",
-                    steps = listOf("截图授权：${permissionState.status.label}")
-                )
-            )
-        }
-
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels.coerceAtLeast(1)
         val height = metrics.heightPixels.coerceAtLeast(1)
         val densityDpi = metrics.densityDpi
         val steps = mutableListOf(
-            "截图授权：已授权",
+            "截图授权：${permissionState.status.label}",
             "目标尺寸：${width}x${height} / $densityDpi dpi"
         )
 
-        val foregroundStarted = OcrMediaProjectionForegroundService.ensureStarted(context)
-        if (!foregroundStarted) {
+        val accessibilityResult = AccessibilityActionBridge.tryTakeScreenshot()
+        steps += accessibilityResult.steps
+        val accessibilityBitmap = accessibilityResult.bitmap
+        if (accessibilityResult.success && accessibilityBitmap != null) {
+            val debugImagePath = OcrDebugImageWriter.save(
+                context = context,
+                bitmap = accessibilityBitmap,
+                label = "accessibilityFull"
+            )
             return@withContext finish(
                 OcrScreenCaptureResult(
-                    success = false,
-                    status = OcrScreenCaptureStatus.FAILED,
-                    message = "启动截图前台服务失败，请确认通知权限和前台服务权限可用",
-                    steps = steps + "MediaProjection 前台服务：启动失败"
+                    success = true,
+                    status = OcrScreenCaptureStatus.CAPTURED,
+                    message = accessibilityResult.message,
+                    bitmap = accessibilityBitmap,
+                    width = accessibilityBitmap.width,
+                    height = accessibilityBitmap.height,
+                    frameStats = accessibilityBitmap.computeFrameStats().summary,
+                    debugImagePath = debugImagePath,
+                    steps = steps +
+                        "截图来源：无障碍服务" +
+                        "调试截图：${debugImagePath.ifBlank { "保存失败" }}"
                 )
             )
         }
-        steps += "MediaProjection 前台服务：已启动"
+        steps += "截图来源：MediaProjection 兜底"
 
-        val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        var projection: MediaProjection? = null
-        var reader: ImageReader? = null
-        var image: Image? = null
-        var callback: MediaProjection.Callback? = null
-        val virtualDisplay = try {
-            projection = manager.getMediaProjection(permissionState.resultCode, permissionState.data)
-            OcrCapturePermissionStore.markTokenUsed()
-            callback = object : MediaProjection.Callback() {}
-            projection.registerCallback(callback, Handler(Looper.getMainLooper()))
-            reader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
-            steps += "MediaProjection 已创建"
-            projection.createVirtualDisplay(
-                "AiReplayMateOcrCapture",
-                width,
-                height,
-                densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                reader!!.surface,
-                null,
-                null
-            )
-        } catch (error: Throwable) {
-            callback?.let { projection?.unregisterCallback(it) }
-            projection?.stop()
-            reader?.close()
-            OcrMediaProjectionForegroundService.stop(context)
-            return@withContext finish(
+        captureMutex.withLock {
+            val session = getOrCreateSession(
+                context = context.applicationContext,
+                permissionState = permissionState,
+                width = width,
+                height = height,
+                densityDpi = densityDpi,
+                steps = steps
+            ) ?: return@withLock finish(
                 OcrScreenCaptureResult(
                     success = false,
-                    status = OcrScreenCaptureStatus.FAILED,
-                    message = "创建截图数据流失败：${error.message ?: error.javaClass.simpleName}",
-                    steps = steps + "异常：${error.javaClass.simpleName}"
+                    status = OcrScreenCaptureStatus.PERMISSION_MISSING,
+                    message = "请先完成屏幕截图授权",
+                    width = width,
+                    height = height,
+                    steps = steps + "MediaProjection 会话：不可用"
                 )
             )
-        }
 
-        try {
-            steps += "VirtualDisplay 已创建，等待稳定帧"
+            var image: Image? = null
+            try {
+            steps += "MediaProjection 会话可用，等待稳定帧"
             var selectedFrame: CapturedFrame? = null
             var lastFrame: CapturedFrame? = null
 
             for (attempt in 1..MAX_FRAME_WAIT_COUNT) {
                 delay(FRAME_WAIT_INTERVAL_MS)
-                image = reader?.acquireLatestImage()
+                image = session.reader.acquireLatestImage()
                 val nextImage = image ?: continue
                 val frame = try {
                     nextImage.toCapturedFrame()
@@ -154,25 +144,26 @@ class AndroidScreenCaptureProvider(
                     )
                 )
             }
-        } catch (error: Throwable) {
-            finish(
-                OcrScreenCaptureResult(
-                    success = false,
-                    status = OcrScreenCaptureStatus.FAILED,
-                    message = "读取截图失败：${error.message ?: error.javaClass.simpleName}",
-                    width = width,
-                    height = height,
-                    steps = steps + "异常：${error.javaClass.simpleName}"
+            } catch (error: Throwable) {
+                closeActiveSession(context)
+                finish(
+                    OcrScreenCaptureResult(
+                        success = false,
+                        status = OcrScreenCaptureStatus.FAILED,
+                        message = "读取截图失败：${error.message ?: error.javaClass.simpleName}",
+                        width = width,
+                        height = height,
+                        steps = steps + "异常：${error.javaClass.simpleName}"
+                    )
                 )
-            )
-        } finally {
-            image?.close()
-            virtualDisplay?.release()
-            callback?.let { projection?.unregisterCallback(it) }
-            projection?.stop()
-            reader?.close()
-            OcrMediaProjectionForegroundService.stop(context)
+            } finally {
+                image?.close()
+            }
         }
+    }
+
+    fun stopSession() {
+        closeActiveSession(context)
     }
 
     private fun finish(result: OcrScreenCaptureResult): OcrScreenCaptureResult {
@@ -279,6 +270,100 @@ class AndroidScreenCaptureProvider(
     }
 
     private companion object {
+        private val captureMutex = Mutex()
+        private var activeSession: CaptureSession? = null
+
+        private suspend fun getOrCreateSession(
+            context: Context,
+            permissionState: OcrCapturePermissionState,
+            width: Int,
+            height: Int,
+            densityDpi: Int,
+            steps: MutableList<String>
+        ): CaptureSession? {
+            activeSession?.let { session ->
+                if (session.width == width && session.height == height && session.densityDpi == densityDpi) {
+                    steps += "MediaProjection 会话：复用中"
+                    return session
+                }
+                closeActiveSession(session.context)
+                steps += "MediaProjection 会话：尺寸变化，重新创建"
+            }
+
+            if (!permissionState.isReady || permissionState.resultCode == null || permissionState.data == null) {
+                return null
+            }
+
+            val foregroundStarted = OcrMediaProjectionForegroundService.ensureStarted(context)
+            if (!foregroundStarted) {
+                steps += "MediaProjection 前台服务：启动失败"
+                return null
+            }
+            steps += "MediaProjection 前台服务：已启动"
+
+            val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            var projection: MediaProjection? = null
+            var reader: ImageReader? = null
+            var virtualDisplay: VirtualDisplay? = null
+            var callback: MediaProjection.Callback? = null
+            return try {
+                projection = manager.getMediaProjection(permissionState.resultCode, permissionState.data)
+                callback = object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        closeActiveSession(context)
+                    }
+                }
+                projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+                reader = ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
+                virtualDisplay = projection.createVirtualDisplay(
+                    "AiReplayMateOcrCapture",
+                    width,
+                    height,
+                    densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    reader.surface,
+                    null,
+                    null
+                )
+                OcrCapturePermissionStore.markSessionActive()
+                steps += "MediaProjection 已创建"
+                CaptureSession(
+                    context = context,
+                    projection = projection,
+                    reader = reader,
+                    virtualDisplay = virtualDisplay,
+                    callback = callback,
+                    width = width,
+                    height = height,
+                    densityDpi = densityDpi
+                ).also {
+                    activeSession = it
+                }
+            } catch (error: Throwable) {
+                callback?.let { projection?.unregisterCallback(it) }
+                virtualDisplay?.release()
+                projection?.stop()
+                reader?.close()
+                OcrMediaProjectionForegroundService.stop(context)
+                OcrCapturePermissionStore.markTokenUsed()
+                steps += "异常：${error.javaClass.simpleName}"
+                null
+            }
+        }
+
+        private fun closeActiveSession(context: Context) {
+            val session = activeSession
+            activeSession = null
+            if (session != null) {
+                runCatching { session.virtualDisplay.release() }
+                runCatching { session.callback.let { session.projection.unregisterCallback(it) } }
+                runCatching { session.projection.stop() }
+                runCatching { session.reader.close() }
+            }
+            OcrMediaProjectionForegroundService.stop(context)
+            OcrCapturePermissionStore.markSessionStopped()
+        }
+
         const val MAX_FRAME_WAIT_COUNT = 18
         const val FRAME_WAIT_INTERVAL_MS = 120L
         const val FRAME_SAMPLE_GRID = 24
@@ -286,4 +371,15 @@ class AndroidScreenCaptureProvider(
         const val MIN_USEFUL_NON_DARK_RATIO = 0.02f
         const val MIN_USEFUL_LUMA_RANGE = 12
     }
+
+    private data class CaptureSession(
+        val context: Context,
+        val projection: MediaProjection,
+        val reader: ImageReader,
+        val virtualDisplay: VirtualDisplay,
+        val callback: MediaProjection.Callback,
+        val width: Int,
+        val height: Int,
+        val densityDpi: Int
+    )
 }

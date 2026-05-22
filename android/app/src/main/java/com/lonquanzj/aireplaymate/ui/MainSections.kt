@@ -93,6 +93,7 @@ import com.lonquanzj.aireplaymate.ocr.AndroidScreenCaptureProvider
 import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
 import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionState
+import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStatus
 import com.lonquanzj.aireplaymate.ocr.OcrCapturePermissionStore
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureState
 import com.lonquanzj.aireplaymate.ocr.OcrScreenCaptureStore
@@ -338,6 +339,10 @@ internal fun AdvancedTabContent(
                     testingOcrRecognition = false
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                 }
+            },
+            onStopCaptureSession = {
+                AndroidScreenCaptureProvider(context.applicationContext).stopSession()
+                Toast.makeText(context, "已停止 OCR 截图会话", Toast.LENGTH_SHORT).show()
             }
         )
 
@@ -1940,7 +1945,8 @@ private fun OcrFallbackSection(
     isTestingOcrRecognition: Boolean,
     onRequestCapturePermission: () -> Unit,
     onTestScreenCapture: () -> Unit,
-    onTestOcrRecognition: () -> Unit
+    onTestOcrRecognition: () -> Unit,
+    onStopCaptureSession: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -1961,10 +1967,12 @@ private fun OcrFallbackSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (capturePermissionState.isReady) {
-                        "屏幕截图授权已准备好；下一步接入 OCR 引擎后，就能从截图中提取聊天文本。"
+                    text = if (capturePermissionState.status == OcrCapturePermissionStatus.ACTIVE) {
+                        "OCR 截图会话正在运行；后续识别会复用当前会话，不需要反复授权。"
+                    } else if (capturePermissionState.isReady) {
+                        "屏幕截图授权已准备好；首次截图会启动可复用的 OCR 截图会话。"
                     } else {
-                        "当前已接入 OCR 兜底入口和诊断；先授权屏幕截图，后续再接真实识别引擎。"
+                        "当前已接入 OCR 兜底入口和诊断；先授权屏幕截图，后续会在同一会话内复用。"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2047,7 +2055,7 @@ private fun OcrFallbackSection(
 
                 OutlinedButton(
                     onClick = onTestScreenCapture,
-                    enabled = capturePermissionState.isReady &&
+                    enabled = capturePermissionState.canCapture &&
                         !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
                     shape = RoundedCornerShape(18.dp),
@@ -2058,13 +2066,24 @@ private fun OcrFallbackSection(
 
                 OutlinedButton(
                     onClick = onTestOcrRecognition,
-                    enabled = capturePermissionState.isReady &&
+                    enabled = capturePermissionState.canCapture &&
                         !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isTestingOcrRecognition) "识别中..." else "测试 OCR 识别")
+                }
+
+                OutlinedButton(
+                    onClick = onStopCaptureSession,
+                    enabled = capturePermissionState.status == OcrCapturePermissionStatus.ACTIVE &&
+                        !isTestingScreenCapture &&
+                        !isTestingOcrRecognition,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("停止 OCR 截图会话")
                 }
 
                 OutlinedButton(

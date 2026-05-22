@@ -1,5 +1,6 @@
 package com.lonquanzj.aireplaymate.accessibility
 
+import android.graphics.Bitmap
 import java.lang.ref.WeakReference
 
 enum class AutofillFailureCategory(
@@ -43,6 +44,13 @@ data class WindowInspectionSnapshot(
     val success: Boolean,
     val state: AccessibilityDebugState = AccessibilityDebugState(),
     val message: String = ""
+)
+
+data class AccessibilityScreenshotResult(
+    val success: Boolean,
+    val bitmap: Bitmap? = null,
+    val message: String,
+    val steps: List<String> = emptyList()
 )
 
 object AccessibilityActionBridge {
@@ -98,5 +106,18 @@ object AccessibilityActionBridge {
         }
 
         return service.inspectCurrentWindow()
+    }
+
+    suspend fun tryTakeScreenshot(): AccessibilityScreenshotResult {
+        val service = serviceRef?.get()
+        if (service == null) {
+            return AccessibilityScreenshotResult(
+                success = false,
+                message = "无障碍服务未连接，无法截图",
+                steps = listOf("无障碍截图：服务未连接")
+            )
+        }
+
+        return service.takeScreenshotBitmap()
     }
 }
