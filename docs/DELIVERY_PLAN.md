@@ -11,20 +11,28 @@
 > 核心链路跑通：触发 → 提取 → 生成 → 填入
 
 - [ ] 项目基础架构保持轻量，暂不强求 Gradle 多模块、DI、复杂导航
-- [ ] 权限引导页面（悬浮窗、无障碍、截图）
-- [ ] 悬浮触发按钮（FloatingButton）
-- [ ] AccessibilityService 骨架 + 微信聊天页识别
-- [ ] Accessibility 消息提取（微信单聊）
-- [ ] 截图 + ML Kit OCR 兜底
-- [ ] ContextBuilder 合并上下文
-- [ ] LLM API 对接（OpenAI 兼容接口）
-- [ ] 候选回复展示面板（3 条）
-- [ ] 自动填入输入框（`ACTION_SET_TEXT` + 剪贴板兜底）
-- [ ] 设置页面（API Key、模型选择、Base URL）
-- [ ] 基本日志与诊断面板
+- [x] 权限引导与状态诊断（悬浮窗、无障碍）
+- [x] 悬浮触发按钮（FloatingButton）
+- [x] AccessibilityService 骨架 + 微信聊天页识别
+- [x] Accessibility 消息提取（微信单聊）
+- [x] 无障碍截图 + ML Kit OCR 兜底
+- [x] ContextBuilder 合并上下文
+- [x] LLM API 对接（OpenAI 兼容接口）
+- [x] 候选回复展示面板（3 条）
+- [x] 自动填入输入框（`ACTION_SET_TEXT` + 剪贴板兜底）
+- [x] 设置页面（API Key、模型选择、Base URL）
+- [x] 基本日志与诊断面板
 - [ ] 端到端自测（当前自用手机 + 当前微信版本）
 
 **V1.0 完成标志**：在开发者手机上可稳定完成一次完整的“触发 → 提取 → 生成 → 填入”流程。
+
+当前落地状态：
+
+- V1.0 主链路已在当前自用手机上跑通，最近一次稳定 smoke 为 7 条用例通过。
+- OCR 兜底已从 MediaProjection 切换为无障碍截图，避免频繁截图授权和后续帧模糊问题。
+- OCR 诊断已能展示截图来源、帧质量、过滤摘要、聚合消息和 Debug 调试图路径。
+- OCR 调试图仅 Debug 构建保存有限数量，Release / 非调试构建不保存。
+- LLM Prompt 仅在实际发送 OCR 上下文时追加 OCR 纠错提示，纯 Accessibility 上下文不追加。
 
 ### V1.1 自用体验增强
 
@@ -73,7 +81,7 @@
 | # | 任务 | 依赖 | 预估 | 说明 |
 |---|------|------|------|------|
 | 1 | 项目初始化：保持单模块轻量结构 | 无 | 0.5d | 单人项目优先少维护；多模块、Hilt、复杂导航延后 |
-| 2 | 权限引导页面（悬浮窗、无障碍、截图三项权限） | 无 | 1d | 引导用户开启必要权限，图文说明 |
+| 2 | 权限引导页面（悬浮窗、无障碍） | 无 | 1d | 引导用户开启必要权限，图文说明 |
 | 3 | 悬浮按钮 FloatingButton（Overlay） | #2 | 1d | 系统级悬浮窗，常驻显示，可拖动 |
 | 4 | AccessibilityService 骨架 + 微信页面识别 | #2 | 2d | 注册 Service，通过包名 + 节点结构判读页面 |
 | 5 | 候选回复展示面板（BottomSheet） | 无 | 2d | 3 条候选横向展示，点击选择 / 重新生成 |
@@ -88,7 +96,7 @@
 |---|------|------|------|------|
 | 8 | Accessibility 消息提取器（微信单聊） | #4 | 3d | 遍历消息节点、解析内容 / 时间 / 发送方 |
 | 9 | 输入框状态读取（是否有文本、是否可输入） | #4 | 0.5d | 用于自动填入前后验证 |
-| 10 | MediaProjection 截图流程 | #2 | 1.5d | 申请 + 截图 + 内存缓存 |
+| 10 | 无障碍截图流程 | #2 #4 | 1.5d | 通过 `AccessibilityService.takeScreenshot` 截图，避免频繁授权 |
 | 11 | ML Kit OCR 引擎集成 | #10 | 2d | 集成 Google ML Kit 文字识别 |
 | 12 | OCR 后处理（按坐标排序、区分左右气泡） | #11 | 1.5d | 将 OCR 结果组装为结构化消息列表 |
 | 13 | ContextBuilder（合并去重、截取策略） | #8 #12 | 1d | 统一 Accessibility + OCR 输出 |
@@ -140,7 +148,7 @@ P0:
 P1:
   #4 → #8 Accessibility提取器
   #4 → #9 输入框状态读取
-  #2 → #10 MediaProjection → #11 ML Kit OCR → #12 OCR后处理
+  #4 → #10 无障碍截图 → #11 ML Kit OCR → #12 OCR后处理
   #8 + #12 → #13 ContextBuilder → #14 PromptBuilder → #15 LLM API
   #7 + #8~15 → #16 集成联调
 

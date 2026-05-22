@@ -32,7 +32,8 @@
 - 已有最小 `ContextBuilder`，用于清洗、去重并截断 Accessibility 上下文
 - 已有最小 `PromptBuilder`，用于生成 OpenAI 兼容请求文本
 - 已有最小 Overlay 悬浮按钮和系统级候选面板入口
-- 尚未落地多模块拆分、DI、Room、DataStore、LLM、OCR
+- 已有 OpenAI 兼容 LLM、无障碍截图 OCR 兜底、悬浮候选面板和最小 Autofill 闭环
+- 尚未落地多模块拆分、DI、Room、DataStore
 
 ### 2.2 本文默认适用范围
 
@@ -85,7 +86,7 @@
 │  Accessibility Extractor       │ Candidate     │
 │  └─ WeChatAdapter              │ Presenter     │
 │  OCR Fallback                  │ (候选面板)     │
-│  └─ MediaProjection + ML Kit   │               │
+│  └─ A11y Screenshot + ML Kit                    │
 │  ContextBuilder                │               │
 │  (合并/去重/排序)               │               │
 ├──────────┴──────────────────────┴───────────────┤
@@ -115,7 +116,7 @@
 
 - `AccessibilityExtractor` 优先从节点树提取消息
 - `WeChatAdapter` 封装微信页面识别、消息抽取、输入框定位
-- `OCRFallback` 使用 `MediaProjection + ML Kit`
+- `OCRFallback` 使用 `AccessibilityService.takeScreenshot + ML Kit`
 - `ContextBuilder` 负责合并、去重、截断和统一输出 `ChatContext`
 
 ### 6.4 Intelligence Layer
@@ -179,9 +180,10 @@
 
 ### 8.3 `core-capture`
 
-- 基于 `MediaProjection` 截图
-- 截图仅缓存内存，不写磁盘
-- 负责权限申请结果与生命周期协同
+- 基于 `AccessibilityService.takeScreenshot` 截图
+- 截图默认仅缓存内存，不写磁盘
+- Debug 构建可保存有限数量调试图用于 OCR 排障；Release / 非调试构建不保存
+- 负责截图结果、失败原因与诊断步骤记录
 
 ### 8.4 `core-ocr`
 
@@ -551,7 +553,7 @@ data class OcrResult(
 
 约束：
 
-- 截图只驻留内存
+- 截图默认只驻留内存；Debug 构建可限量保存调试图，Release / 非调试构建不保存
 - OCR 原始块信息默认不落库
 - OCR 结果必须按屏幕纵向顺序重新排序
 
@@ -921,7 +923,7 @@ Room MVP 表：
 - API Key 不写入日志
 - 不保存完整聊天原文
 - 不保存原始 OCR 文本块
-- 不保存原始截图
+- Release / 非调试构建不保存原始截图；Debug 调试图必须限量并只用于排障
 
 Repository 接口建议：
 
@@ -967,7 +969,7 @@ interface DiagnosticLogRepository {
 | 异步 | Coroutines / Flow | 天然适配 Android 生命周期 |
 | 本地存储 | Room + DataStore | Room 存结构化数据，DataStore 存偏好 |
 | 无障碍 | AccessibilityService | 系统标准方案，无需 Root |
-| 截图 | MediaProjection | Android 官方截屏 API |
+| 截图 | AccessibilityService.takeScreenshot | 与无障碍提取共用权限上下文，避免 MediaProjection 频繁授权 |
 | OCR | ML Kit Text Recognition | Google 官方，设备端运行 |
 | LLM | OpenAI 兼容 API | 易于切换多家 Provider |
 | DI | Hilt | 官方推荐 |

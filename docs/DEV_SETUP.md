@@ -12,7 +12,7 @@
 - 已有微信聊天页初判、消息提取、输入框定位与最小 Autofill 尝试
 - 已有 `RealReplySessionRunner` 统一真实悬浮链路
 - 已接入 OpenAI 兼容 LLM 请求与本地兜底候选
-- 已接入 MediaProjection 截图链路和 ML Kit 中文 OCR
+- 已接入无障碍截图链路和 ML Kit 中文 OCR
 - 已有悬浮气泡、候选面板、等待态与多类诊断 UI
 
 如果你要先确认整体进度，建议优先看：
@@ -97,7 +97,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 5. 打开无障碍设置并启用服务
 6. 打开悬浮窗权限，并在首页启动 AI 气泡
 7. 进入微信单聊页，短按悬浮气泡测试候选生成
-8. 如上下文不足，再验证 OCR 授权、截图链路和 OCR 识别
+8. 如上下文不足，再验证无障碍 OCR 截图链路和 OCR 识别
 
 ## 6. 当前可验证内容
 
@@ -109,7 +109,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 4. LLM 测试连接与请求诊断
 5. 悬浮气泡启动、等待态、候选面板
 6. 真实悬浮链路的 LLM / 本地兜底切换
-7. OCR 授权、截图链路和 OCR 识别测试
+7. OCR 无障碍截图链路和 OCR 识别测试
 8. 输入框最小 Autofill 尝试
 
 当前仍需谨慎看待的内容：
@@ -124,7 +124,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 
 - 无障碍权限
 - 悬浮窗权限
-- MediaProjection 截图授权
+- Android 无障碍截图能力（`AccessibilityService.takeScreenshot`）
 
 相关声明见 [AndroidManifest.xml](../android/app/src/main/AndroidManifest.xml:1)。
 
@@ -186,9 +186,10 @@ adb logcat | grep AiReplayMate
 
 优先检查：
 
-1. 是否已授予截图权限
+1. 无障碍服务是否已开启，并且服务配置已允许截图
 2. 是否走到了 `Accessibility 上下文不足`
-3. OCR 诊断里是否有截图和识别步骤记录
+3. OCR 诊断里是否显示 `截图方式：无障碍服务`
+4. OCR 诊断里是否有截图来源、帧质量、过滤摘要和识别消息记录
 
 ## 10. 下一步建议
 

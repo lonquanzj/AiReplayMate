@@ -32,7 +32,9 @@
 - 已有上下文整理器，可对 Accessibility / OCR 消息去重、过滤、截断
 - 已接入 OpenAI 兼容 `Base URL + API Key + Model` 配置
 - 已有真实 LLM 请求、响应解析、失败分类和诊断展示
-- 已接入 ML Kit 中文 OCR，用于上下文不足时的兜底识别
+- 已接入无障碍截图 + ML Kit 中文 OCR，用于上下文不足时的兜底识别
+- OCR 调试截图仅在 Debug 构建保存，Release / 非调试构建不长期落盘
+- 当 LLM 请求包含 OCR 上下文时，会提示模型温和纠正常见 OCR 近形错
 - 已有悬浮气泡，可短按快速生成，长按打开风格菜单
 - 已支持快速回复、话术宝典、润色表达三类回复模式
 - 已支持候选来源标识，例如 `LLM`、`本地兜底`、`含 OCR 上下文`
@@ -52,7 +54,7 @@
 
 ### 2. OCR 兜底
 
-当 Accessibility 提取到的消息不够支撑生成时，项目会通过 MediaProjection 抓取当前屏幕，再使用 ML Kit 中文 OCR 识别聊天文本，并与已有上下文合并。
+当 Accessibility 提取到的消息不够支撑生成时，项目会通过无障碍服务截图抓取当前屏幕，再使用 ML Kit 中文 OCR 识别聊天文本，并与已有上下文合并。当前已弃用 MediaProjection 路径，避免频繁截图授权和截图质量不稳定的问题。
 
 ### 3. 候选生成
 
@@ -87,7 +89,7 @@
 
 - 无障碍状态与样本查看
 - LLM 配置校验、测试连接、最近请求诊断
-- OCR 授权状态、截图链路、识别结果诊断
+- OCR 截图来源、帧质量、过滤摘要、识别消息和调试图路径诊断
 - 悬浮窗服务状态、真实触发阶段、候选来源、失败摘要
 - 最近诊断日志复制与清空
 
@@ -102,7 +104,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 ├── context/                         # ChatContext 构建与上下文整理
 ├── diagnostics/                     # 摘要级诊断日志
 ├── llm/                             # OpenAI 兼容网关、响应解析、LLM 诊断
-├── ocr/                             # 截图授权、截图、OCR 识别与后处理
+├── ocr/                             # 无障碍截图、OCR 识别、后处理与诊断
 ├── overlay/                         # 悬浮气泡、候选面板、Overlay 诊断
 ├── prompt/                          # Prompt 构建、回复风格模型、请求模型
 ├── session/                         # Demo 状态机、真实会话执行器、本地兜底
@@ -135,7 +137,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 - Kotlin
 - Jetpack Compose
 - Android AccessibilityService
-- MediaProjection
+- AccessibilityService 截图
 - ML Kit Chinese Text Recognition
 - OpenAI 兼容 HTTP API
 - SharedPreferences
@@ -286,7 +288,7 @@ $env:Path="$env:JAVA_HOME\bin;C:\Users\lonqu\AppData\Local\Android\Sdk\platform-
 5. 授予无障碍权限
 6. 授予悬浮窗权限，并启动悬浮气泡
 7. 进入微信单聊页测试候选生成
-8. 如上下文不足，再测试 OCR 授权和 OCR 识别
+8. 如上下文不足，再测试无障碍 OCR 截图和 OCR 识别
 
 ## 配置项
 
