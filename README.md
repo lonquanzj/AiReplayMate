@@ -42,6 +42,8 @@
 
 更具体的当前进度见 [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)。
 
+如果准备逐步补齐真机关键场景，而不是只维护当前稳定 smoke，建议同时查看 [docs/REAL_DEVICE_TEST_PLAN.md](docs/REAL_DEVICE_TEST_PLAN.md)。
+
 ## 功能说明
 
 ### 1. 微信辅助回复
@@ -169,6 +171,79 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 ```
 
 Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 `:android:app:*`。
+
+### 一键真机单测（含清理与日志落盘）
+
+仓库内已提供脚本：
+
+```powershell
+.\scripts\run-device-smoke-test.ps1
+```
+
+也可以直接通过 VS Code 任务运行：
+
+- `device smoke: stable suite`：默认六条稳定用例
+- `device smoke: single test`：弹出输入框后跑指定单用例
+- `device smoke: activity probe`：快速复现 `MainActivity` 启动探针与 MIUI 限制告警
+
+默认执行七条稳定用例：
+
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#device_baseline_persistence_and_entrypoint_are_healthy`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#prompt_builder_respects_policy_sanitization_and_mode_rules`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#local_fallback_generator_produces_ranked_persona_aware_candidates`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#llm_debug_store_tracks_state_transitions_and_hints`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#overlay_diagnostics_store_tracks_flow_and_failure_state`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#diagnostic_log_store_persists_sanitizes_and_deduplicates_entries`
+- `com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_debug_store_tracks_attempt_result_and_message_previews`
+
+脚本会自动完成：
+
+1. 清理 `android/app/build/outputs/androidTest-results/connected`
+2. 检查真机连接状态（`adb devices`）
+3. 安装 `debug` 与 `debugAndroidTest` APK
+4. 直接通过 `am instrument` 串行跑默认稳定用例集
+5. 导出安装日志、instrument 输出和 logcat
+
+日志输出目录示例：
+
+- `android/app/build/reports/androidTests/device-smoke/20260522-130501/`
+
+自定义测试类（或测试方法）示例：
+
+```powershell
+.\scripts\run-device-smoke-test.ps1 -TestClass "com.lonquanzj.aireplaymate.YourTest#yourCase"
+```
+
+自定义多用例示例：
+
+```powershell
+.\scripts\run-device-smoke-test.ps1 -TestClasses "com.lonquanzj.aireplaymate.DeviceRegressionTest#device_baseline_persistence_and_entrypoint_are_healthy","com.lonquanzj.aireplaymate.DeviceRegressionTest#prompt_builder_respects_policy_sanitization_and_mode_rules"
+```
+
+在 VS Code 中可通过 `Terminal: Run Task` 直接选择以上任务，不必每次手输命令。
+
+默认稳定集当前覆盖：
+
+| 用例 | 覆盖点 |
+| --- | --- |
+| `device_baseline_persistence_and_entrypoint_are_healthy` | 入口 intent、Smoke 标记、基础持久化、诊断快照落盘 |
+| `prompt_builder_respects_policy_sanitization_and_mode_rules` | PromptBuilder 的上下文策略、参数归一化、润色模式与安全边界 |
+| `local_fallback_generator_produces_ranked_persona_aware_candidates` | 本地兜底候选生成、角色差异、Playbook/Polish 分支 |
+| `llm_debug_store_tracks_state_transitions_and_hints` | LLM 诊断状态流、错误分类、恢复提示、history 上限 |
+| `overlay_diagnostics_store_tracks_flow_and_failure_state` | 悬浮链路诊断状态迁移、候选阶段、失败态与 steps |
+| `diagnostic_log_store_persists_sanitizes_and_deduplicates_entries` | 诊断日志持久化、URL 脱敏、去重、快照格式 |
+| `ocr_debug_store_tracks_attempt_result_and_message_previews` | OCR 诊断状态覆盖、步骤记录、消息预览格式 |
+
+脚本 summary 额外提供：
+
+- `testResult.N.name` / `testResult.N.status`
+- `passedTests` / `failedTests`
+- `miuiLaunchBlockDetected` / `miuiLaunchBlockSummary`
+
+说明：
+
+- 默认真机回归不再拉起 `MainActivity`，以规避部分 MIUI 机型对 instrumentation 后台启动 Activity 的限制。
+- `MainActivitySmokeTest` 仍可作为补充诊断用例手动运行，但不再作为默认 smoke 入口。
 
 ### 安装与验证建议
 

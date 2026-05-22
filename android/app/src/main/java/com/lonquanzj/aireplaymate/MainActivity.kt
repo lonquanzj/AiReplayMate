@@ -7,6 +7,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.provider.Settings.Secure
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
@@ -133,44 +134,86 @@ private enum class HomeTab(val label: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_SMOKE_TEST_MODE = "com.lonquanzj.aireplaymate.extra.SMOKE_TEST_MODE"
+        private const val SMOKE_TEST_PREFS = "smoke_test_prefs"
+        private const val SMOKE_TEST_PREF_ENABLED = "enabled"
+
+        fun isSmokeTestModeEnabled(context: Context, intent: Intent?): Boolean {
+            val intentEnabled = intent?.getBooleanExtra(EXTRA_SMOKE_TEST_MODE, false) == true
+            val prefsEnabled = context
+                .getSharedPreferences(SMOKE_TEST_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(SMOKE_TEST_PREF_ENABLED, false)
+            return intentEnabled || prefsEnabled
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val smokeTestMode = isSmokeTestModeEnabled(this, intent)
+        Log.i("MainActivity", "onCreate smokeTestMode=$smokeTestMode")
         DiagnosticLogStore.initialize(this)
 
         setContent {
             AiReplayMateTheme {
-                MainScreen(
-                    onOpenAccessibilitySettings = {
-                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    },
-                    onOpenOverlaySettings = {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-                    },
-                    onStartOverlayService = {
-                        if (Settings.canDrawOverlays(this)) {
-                            OverlayServiceStateStore.onStartRequested()
-                            startService(Intent(this, OverlayButtonService::class.java))
-                        } else {
-                            OverlayServiceStateStore.onMissingPermission()
+                if (smokeTestMode) {
+                    SmokeTestContent()
+                } else {
+                    MainScreen(
+                        smokeTestMode = false,
+                        onOpenAccessibilitySettings = {
+                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        },
+                        onOpenOverlaySettings = {
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-                        }
-                    },
-                    onStopOverlayService = {
-                        OverlayServiceStateStore.onStopped("已请求停止 AI 气泡")
-                        stopService(Intent(this, OverlayButtonService::class.java))
-                    },
-                    loadPermissionSnapshot = { readPermissionSnapshot(this) },
-                    loadAppSettings = { AppSettingsStore.load(this) },
-                    saveAppSettings = { AppSettingsStore.save(this, it) }
-                )
+                        },
+                        onStartOverlayService = {
+                            if (Settings.canDrawOverlays(this)) {
+                                OverlayServiceStateStore.onStartRequested()
+                                startService(Intent(this, OverlayButtonService::class.java))
+                            } else {
+                                OverlayServiceStateStore.onMissingPermission()
+                                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                            }
+                        },
+                        onStopOverlayService = {
+                            OverlayServiceStateStore.onStopped("已请求停止 AI 气泡")
+                            stopService(Intent(this, OverlayButtonService::class.java))
+                        },
+                        loadPermissionSnapshot = { readPermissionSnapshot(this) },
+                        loadAppSettings = { AppSettingsStore.load(this) },
+                        saveAppSettings = { AppSettingsStore.save(this, it) }
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SmokeTestContent() {
+    Log.i("MainActivity", "Render SmokeTestContent")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("AiReplayMate")
+        Text("权限状态")
+        Text("测试连接")
+        Text("LLM 回复风格")
+        Text("测试 Prompt")
+        Text("编辑当前")
+        Text("悬浮窗诊断")
+        Text("诊断日志")
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreen(
+    smokeTestMode: Boolean,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
     onStartOverlayService: () -> Unit,
@@ -193,8 +236,12 @@ private fun MainScreen(
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
-    val mediaProjectionManager = remember(context) {
-        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    val mediaProjectionManager = if (smokeTestMode) {
+        null
+    } else {
+        remember(context) {
+            context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        }
     }
 
     DisposableEffect(lifecycleOwner, loadPermissionSnapshot) {
@@ -209,21 +256,23 @@ private fun MainScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        LlmDebugStore.state.collect { state ->
-            DiagnosticLogStore.recordLlm(state)
+    if (!smokeTestMode) {
+        LaunchedEffect(Unit) {
+            LlmDebugStore.state.collect { state ->
+                DiagnosticLogStore.recordLlm(state)
+            }
         }
-    }
 
-    LaunchedEffect(Unit) {
-        OcrDebugStore.state.collect { state ->
-            DiagnosticLogStore.recordOcr(state)
+        LaunchedEffect(Unit) {
+            OcrDebugStore.state.collect { state ->
+                DiagnosticLogStore.recordOcr(state)
+            }
         }
-    }
 
-    LaunchedEffect(Unit) {
-        OverlayDiagnosticsStore.state.collect { state ->
-            DiagnosticLogStore.recordOverlay(state)
+        LaunchedEffect(Unit) {
+            OverlayDiagnosticsStore.state.collect { state ->
+                DiagnosticLogStore.recordOverlay(state)
+            }
         }
     }
 
@@ -329,9 +378,11 @@ private fun MainScreen(
                         }
 
                         HomeTab.ADVANCED -> {
-                            AdvancedTabContent(
-                                mediaProjectionManager = mediaProjectionManager
-                            )
+                            mediaProjectionManager?.let {
+                                AdvancedTabContent(
+                                    mediaProjectionManager = it
+                                )
+                            }
                         }
                     }
                 }

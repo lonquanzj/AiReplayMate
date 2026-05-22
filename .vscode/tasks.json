@@ -1,0 +1,86 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "deviceSmokeTestClass",
+      "type": "promptString",
+      "description": "Enter a fully qualified instrumentation test, for example com.lonquanzj.aireplaymate.DeviceRegressionTest#device_baseline_persistence_and_entrypoint_are_healthy",
+      "default": "com.lonquanzj.aireplaymate.DeviceRegressionTest#device_baseline_persistence_and_entrypoint_are_healthy"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "device smoke: stable suite",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device smoke: single test",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-TestClass",
+        "${input:deviceSmokeTestClass}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device smoke: activity probe",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-TestClass",
+        "com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario",
+        "-SkipInstall",
+        "-InstrumentTimeoutSeconds",
+        "60"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

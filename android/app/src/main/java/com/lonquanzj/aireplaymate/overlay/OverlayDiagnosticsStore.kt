@@ -38,6 +38,10 @@ object OverlayDiagnosticsStore {
     private val _state = MutableStateFlow(OverlayDiagnosticsState())
     val state: StateFlow<OverlayDiagnosticsState> = _state.asStateFlow()
 
+    fun reset() {
+        _state.value = OverlayDiagnosticsState()
+    }
+
     fun begin() {
         _state.value = OverlayDiagnosticsState(
             phase = OverlayRunPhase.VALIDATING,

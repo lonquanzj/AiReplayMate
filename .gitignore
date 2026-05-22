@@ -55,3 +55,4 @@ logs/
 # Android Studio Captures
 captures/
 screenshots/
+tmp*

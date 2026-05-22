@@ -21,6 +21,8 @@
    当前仓库真实进度、Now / Next / Later、近期建议。
 7. [CODE_REVIEW.md](CODE_REVIEW.md)
    面向当前阶段的 Code Review 基线，覆盖 MVP 边界、架构分层、微信适配、自动填入、安全与验证要求。
+8. [REAL_DEVICE_TEST_PLAN.md](REAL_DEVICE_TEST_PLAN.md)
+   真实链路与稳定 smoke 的分层策略、真机关键场景补齐顺序与阶段计划。
 
 推荐阅读顺序：
 

@@ -25,6 +25,10 @@ object OcrDebugStore {
     private val _state = MutableStateFlow(OcrDebugState())
     val state: StateFlow<OcrDebugState> = _state.asStateFlow()
 
+    fun reset() {
+        _state.value = OcrDebugState()
+    }
+
     fun onAttempt(
         targetApp: String,
         reason: String,

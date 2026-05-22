@@ -1,0 +1,443 @@
+param(
+    [string[]]$TestClasses = @(
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#device_baseline_persistence_and_entrypoint_are_healthy',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#prompt_builder_respects_policy_sanitization_and_mode_rules',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#local_fallback_generator_produces_ranked_persona_aware_candidates',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#llm_debug_store_tracks_state_transitions_and_hints',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#overlay_diagnostics_store_tracks_flow_and_failure_state',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#diagnostic_log_store_persists_sanitizes_and_deduplicates_entries',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_debug_store_tracks_attempt_result_and_message_previews'
+    ),
+    [string]$TestClass,
+    [string]$AppPackage = 'com.lonquanzj.aireplaymate',
+    [string]$TestPackage = 'com.lonquanzj.aireplaymate.test',
+    [int]$InstrumentTimeoutSeconds = 120,
+    [switch]$SkipInstall
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Get-SdkDir {
+    if ($env:ANDROID_SDK_ROOT -and (Test-Path $env:ANDROID_SDK_ROOT)) {
+        return $env:ANDROID_SDK_ROOT
+    }
+
+    if ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME)) {
+        return $env:ANDROID_HOME
+    }
+
+    $repoLocalProperties = Join-Path $PSScriptRoot '..\local.properties'
+    if (Test-Path $repoLocalProperties) {
+        $raw = Get-Content $repoLocalProperties -Raw
+        $match = [regex]::Match($raw, 'sdk\.dir\s*=\s*(.+)')
+        if ($match.Success) {
+            $sdk = $match.Groups[1].Value.Trim()
+            $sdk = $sdk -replace '\\\\', '\'
+            $sdk = $sdk -replace '\\:', ':'
+            if (Test-Path $sdk) {
+                return $sdk
+            }
+        }
+    }
+
+    $fallback = 'C:\Users\lonqu\AppData\Local\Android\Sdk'
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    throw 'Android SDK path not found. Set ANDROID_SDK_ROOT or configure sdk.dir in local.properties.'
+}
+
+function Get-JavaHome {
+    if ($env:JAVA_HOME -and (Test-Path $env:JAVA_HOME)) {
+        return $env:JAVA_HOME
+    }
+
+    $jbr = 'C:\Program Files\Android\Android Studio\jbr'
+    if (Test-Path $jbr) {
+        return $jbr
+    }
+
+    $temurin = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot'
+    if (Test-Path $temurin) {
+        return $temurin
+    }
+
+    throw 'JDK not found. Set JAVA_HOME or install Android Studio JBR.'
+}
+
+function Read-TextFileWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [int]$RetryCount = 5,
+        [int]$DelayMs = 300
+    )
+
+    if (-not (Test-Path $Path)) {
+        return ''
+    }
+
+    for ($i = 1; $i -le $RetryCount; $i++) {
+        try {
+            return Get-Content $Path -Raw
+        }
+        catch {
+            if ($i -eq $RetryCount) {
+                return ''
+            }
+            Start-Sleep -Milliseconds $DelayMs
+        }
+    }
+
+    return ''
+}
+
+function Parse-InstrumentationTestResults {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstrumentText
+    )
+
+    $results = New-Object System.Collections.Generic.List[object]
+    if ([string]::IsNullOrWhiteSpace($InstrumentText)) {
+        return $results
+    }
+
+    $currentClass = ''
+    $currentTest = ''
+
+    foreach ($line in ($InstrumentText -split "`r?`n")) {
+        if ($line -match '^INSTRUMENTATION_STATUS:\s+class=(.+)$') {
+            $currentClass = $Matches[1].Trim()
+            continue
+        }
+
+        if ($line -match '^INSTRUMENTATION_STATUS:\s+test=(.+)$') {
+            $currentTest = $Matches[1].Trim()
+            continue
+        }
+
+        if ($line -match '^INSTRUMENTATION_STATUS_CODE:\s+(-?\d+)$') {
+            $statusCode = [int]$Matches[1]
+            if ([string]::IsNullOrWhiteSpace($currentClass) -or [string]::IsNullOrWhiteSpace($currentTest)) {
+                continue
+            }
+
+            $status = switch ($statusCode) {
+                0 { 'passed' }
+                -2 { 'failed' }
+                default { $null }
+            }
+
+            if ($null -eq $status) {
+                continue
+            }
+
+            $fullName = "$currentClass#$currentTest"
+            $existing = $results | Where-Object { $_.name -eq $fullName } | Select-Object -First 1
+            if ($null -ne $existing) {
+                $existing.status = $status
+            }
+            else {
+                $results.Add([PSCustomObject]@{
+                    name = $fullName
+                    status = $status
+                }) | Out-Null
+            }
+        }
+    }
+
+    return $results
+}
+
+function Ensure-DeviceAwakeAndUnlocked {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AdbPath
+    )
+
+    Write-Host "[3.5/5] Wake device and dismiss keyguard (best effort)"
+
+    $commands = @(
+        @('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'),
+        @('shell', 'wm', 'dismiss-keyguard'),
+        @('shell', 'input', 'swipe', '600', '2200', '600', '900', '200'),
+        @('shell', 'input', 'keyevent', 'KEYCODE_MENU'),
+        @('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+    )
+
+    $nativeCommandPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    $hasNativeCommandPreference = $null -ne $nativeCommandPreference
+    if ($hasNativeCommandPreference) {
+        $oldNativeCommandPreference = [bool]$nativeCommandPreference.Value
+        $Global:PSNativeCommandUseErrorActionPreference = $false
+    }
+
+    try {
+        foreach ($commandArgs in $commands) {
+            & $AdbPath @commandArgs 1>$null 2>$null
+        }
+    }
+    finally {
+        if ($hasNativeCommandPreference) {
+            $Global:PSNativeCommandUseErrorActionPreference = $oldNativeCommandPreference
+        }
+    }
+
+    Start-Sleep -Seconds 1
+}
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Set-Location $repoRoot
+
+$sdkDir = Get-SdkDir
+$javaHome = Get-JavaHome
+$adb = Join-Path $sdkDir 'platform-tools\adb.exe'
+if (-not (Test-Path $adb)) {
+    throw "adb not found at $adb"
+}
+
+$gradlew = Join-Path $repoRoot 'gradlew.bat'
+if (-not (Test-Path $gradlew)) {
+    throw "gradlew.bat not found at $gradlew"
+}
+
+$env:JAVA_HOME = $javaHome
+$env:Path = "$($javaHome)\bin;$($sdkDir)\platform-tools;$env:Path"
+
+$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$outDir = Join-Path $repoRoot "android\app\build\reports\androidTests\device-smoke\$timestamp"
+New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
+$installLog = Join-Path $outDir 'install-output.txt'
+$instrumentLog = Join-Path $outDir 'instrument-output.txt'
+$instrumentErrLog = Join-Path $outDir 'instrument-error.txt'
+$logcatLog = Join-Path $outDir 'logcat.txt'
+$summaryLog = Join-Path $outDir 'summary.txt'
+
+$installExit = -1
+$instrumentExit = -1
+$instrumentTimedOut = $false
+$timedOutAppPid = ''
+$passed = $false
+$crashed = $false
+$failed = $false
+$scriptError = ''
+$miuiLaunchBlockDetected = $false
+$miuiLaunchBlockSummary = ''
+$selectedTests = if ([string]::IsNullOrWhiteSpace($TestClass)) {
+    @($TestClasses | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+} else {
+    @($TestClass)
+}
+
+if ($selectedTests.Count -eq 0) {
+    throw 'At least one test must be provided via -TestClasses or -TestClass.'
+}
+
+$joinedTestClasses = ($selectedTests -join ',')
+$testResults = @()
+$passedTestNames = @()
+$failedTestNames = @()
+
+try {
+    Write-Host "[1/5] Prepare environment"
+    Write-Host "  repo: $repoRoot"
+    Write-Host "  sdk : $sdkDir"
+    Write-Host "  java: $javaHome"
+    Write-Host "  out : $outDir"
+    Write-Host "  tests: $joinedTestClasses"
+
+    Write-Host "[2/5] Clean stale connected test artifacts"
+    Remove-Item -Recurse -Force 'android/app/build/outputs/androidTest-results/connected' -ErrorAction SilentlyContinue
+
+    Write-Host "[3/5] Ensure adb + connected device"
+    & $adb start-server | Out-Null
+    $devices = & $adb devices
+    $devices | Tee-Object -FilePath $summaryLog | Out-Host
+    $onlineDevices = @(
+        $devices |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -match '^[^\s].*\tdevice$' }
+    )
+    if ($onlineDevices.Count -eq 0) {
+        throw 'No online device detected. Connect a real device and enable USB debugging.'
+    }
+
+    Ensure-DeviceAwakeAndUnlocked -AdbPath $adb
+
+    Write-Host "[4/5] Install app + test APK"
+    & $adb logcat -c
+    if ($SkipInstall) {
+        Write-Host "  Skip install because -SkipInstall is set"
+        "Skip install because -SkipInstall is set" | Set-Content $installLog
+        $installExit = 0
+    }
+    else {
+        & $gradlew ':app:installDebug' ':app:installDebugAndroidTest' '--console=plain' 2>&1 | Tee-Object -FilePath $installLog | Out-Host
+        $installExit = $LASTEXITCODE
+        if ($installExit -ne 0) {
+            throw "Gradle install tasks failed, exit code=$installExit"
+        }
+    }
+
+    Write-Host "[5/5] Run instrumentation test selection"
+    if ($joinedTestClasses -match 'MainActivitySmokeTest|MainActivityLaunchProbeTest') {
+        Write-Warning 'This test launches MainActivity under instrumentation. On some MIUI devices this can be blocked as a background activity start even when the app opens normally by hand.'
+    }
+    $runner = "$TestPackage/androidx.test.runner.AndroidJUnitRunner"
+    & $adb shell am force-stop $AppPackage | Out-Null
+    & $adb shell am force-stop $TestPackage | Out-Null
+    if (Test-Path $instrumentLog) { Remove-Item -Force $instrumentLog }
+    if (Test-Path $instrumentErrLog) { Remove-Item -Force $instrumentErrLog }
+    $instrumentProcess = Start-Process -FilePath $adb `
+        -ArgumentList @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner) `
+        -RedirectStandardOutput $instrumentLog `
+        -RedirectStandardError $instrumentErrLog `
+        -NoNewWindow `
+        -PassThru
+
+    $instrumentWaitTimedOut = $false
+    try {
+        Wait-Process -Id $instrumentProcess.Id -Timeout $InstrumentTimeoutSeconds -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception -is [System.TimeoutException]) {
+            $instrumentWaitTimedOut = $true
+        }
+        else {
+            throw
+        }
+    }
+
+    if ($instrumentWaitTimedOut) {
+        $instrumentTimedOut = $true
+        $pidofResult = & $adb shell pidof $AppPackage 2>$null
+        $timedOutAppPid = if ($null -eq $pidofResult) { '' } else { ($pidofResult | Out-String).Trim() }
+        if (-not [string]::IsNullOrWhiteSpace($timedOutAppPid)) {
+            # Dump Java thread stacks to logcat before terminating instrumentation.
+            $hasNativeCommandPreference = $false
+            $oldNativeCommandPreference = $false
+            $nativeCommandPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+            if ($null -ne $nativeCommandPreference) {
+                $hasNativeCommandPreference = $true
+                $oldNativeCommandPreference = [bool]$nativeCommandPreference.Value
+                $Global:PSNativeCommandUseErrorActionPreference = $false
+            }
+            try {
+                & $adb shell "kill -3 $timedOutAppPid" 1>$null 2>$null
+            }
+            catch {
+            }
+            finally {
+                if ($hasNativeCommandPreference) {
+                    $Global:PSNativeCommandUseErrorActionPreference = $oldNativeCommandPreference
+                }
+            }
+            Start-Sleep -Seconds 2
+        }
+        Stop-Process -Id $instrumentProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    if (-not $instrumentTimedOut) {
+        $instrumentProcess.WaitForExit()
+        $instrumentProcess.Refresh()
+    }
+
+    $instrumentExit = if ($instrumentTimedOut) {
+        124
+    }
+    elseif ($null -eq $instrumentProcess.ExitCode) {
+        0
+    }
+    else {
+        $instrumentProcess.ExitCode
+    }
+
+    if (Test-Path $instrumentErrLog) {
+        Get-Content $instrumentErrLog | Add-Content $instrumentLog
+    }
+
+    if (Test-Path $instrumentLog) {
+        Get-Content $instrumentLog | Out-Host
+    }
+}
+catch {
+    $scriptError = $_.Exception.Message
+    Write-Host "SMOKE TEST ERROR: $scriptError"
+}
+finally {
+    if (-not (Test-Path $logcatLog)) {
+        try {
+            & $adb logcat -d > $logcatLog
+        }
+        catch {
+        }
+    }
+
+    $instrumentText = Read-TextFileWithRetry -Path $instrumentLog
+    $logcatText = Read-TextFileWithRetry -Path $logcatLog
+    $testResults = Parse-InstrumentationTestResults -InstrumentText $instrumentText
+    $passedTestNames = @($testResults | Where-Object { $_.status -eq 'passed' } | ForEach-Object { $_.name })
+    $failedTestNames = @($testResults | Where-Object { $_.status -eq 'failed' } | ForEach-Object { $_.name })
+    $passed = $instrumentText -match 'INSTRUMENTATION_CODE:\s*-1'
+    $crashed = $instrumentText -match 'shortMsg=Process crashed|Process crashed'
+    $failed = $instrumentText -match 'INSTRUMENTATION_STATUS_CODE:\s*-2|FAILURES!!!|INSTRUMENTATION_FAILED'
+    $miuiLaunchBlockDetected = $logcatText -match 'Abort background activity starts|result code=102|Permission Denied Activity KeyguardLocked|MIUILOG- Permission Denied Activity'
+    if ($miuiLaunchBlockDetected) {
+        $miuiLaunchBlockSummary = 'Detected MIUI/OEM background-activity-start blocking in logcat. Activity-launching instrumentation tests may fail before MainActivity.onCreate. Prefer DeviceRegressionTest as the default baseline on this device.'
+    }
+
+    "" | Add-Content $summaryLog
+    "testClasses=$joinedTestClasses" | Add-Content $summaryLog
+    "appPackage=$AppPackage" | Add-Content $summaryLog
+    "testPackage=$TestPackage" | Add-Content $summaryLog
+    "installLog=$installLog" | Add-Content $summaryLog
+    "instrumentLog=$instrumentLog" | Add-Content $summaryLog
+    "logcatLog=$logcatLog" | Add-Content $summaryLog
+    "installExit=$installExit" | Add-Content $summaryLog
+    "instrumentExit=$instrumentExit" | Add-Content $summaryLog
+    "instrumentTimedOut=$instrumentTimedOut" | Add-Content $summaryLog
+    "timedOutAppPid=$timedOutAppPid" | Add-Content $summaryLog
+    "passed=$passed" | Add-Content $summaryLog
+    "crashed=$crashed" | Add-Content $summaryLog
+    "failed=$failed" | Add-Content $summaryLog
+    "testResultCount=$($testResults.Count)" | Add-Content $summaryLog
+    for ($index = 0; $index -lt $testResults.Count; $index++) {
+        $result = $testResults[$index]
+        "testResult.$($index + 1).name=$($result.name)" | Add-Content $summaryLog
+        "testResult.$($index + 1).status=$($result.status)" | Add-Content $summaryLog
+    }
+    "passedTestCount=$($passedTestNames.Count)" | Add-Content $summaryLog
+    "failedTestCount=$($failedTestNames.Count)" | Add-Content $summaryLog
+    "passedTests=$($passedTestNames -join '|')" | Add-Content $summaryLog
+    "failedTests=$($failedTestNames -join '|')" | Add-Content $summaryLog
+    "miuiLaunchBlockDetected=$miuiLaunchBlockDetected" | Add-Content $summaryLog
+    "miuiLaunchBlockSummary=$miuiLaunchBlockSummary" | Add-Content $summaryLog
+    "scriptError=$scriptError" | Add-Content $summaryLog
+}
+
+if ($miuiLaunchBlockDetected) {
+    Write-Warning $miuiLaunchBlockSummary
+}
+
+if ($testResults.Count -gt 0) {
+    Write-Host 'Per-test results:'
+    foreach ($result in $testResults) {
+        Write-Host "  [$($result.status)] $($result.name)"
+    }
+    Write-Host "Passed tests: $($passedTestNames.Count)"
+    Write-Host "Failed tests: $($failedTestNames.Count)"
+}
+
+if ($passed -and -not $crashed -and -not $failed -and $instrumentExit -eq 0 -and [string]::IsNullOrWhiteSpace($scriptError)) {
+    Write-Host "SMOKE TEST PASSED"
+    Write-Host "Summary: $summaryLog"
+    exit 0
+}
+
+Write-Host "SMOKE TEST FAILED"
+Write-Host "Summary: $summaryLog"
+exit 1

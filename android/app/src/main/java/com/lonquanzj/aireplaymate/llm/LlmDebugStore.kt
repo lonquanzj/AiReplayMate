@@ -61,6 +61,10 @@ object LlmDebugStore {
     private val _state = MutableStateFlow(LlmDebugState())
     val state: StateFlow<LlmDebugState> = _state.asStateFlow()
 
+    fun reset() {
+        _state.value = LlmDebugState()
+    }
+
     fun onSkipped(
         baseUrl: String,
         model: String,
