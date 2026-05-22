@@ -37,12 +37,25 @@ class DefaultPromptBuilderTest {
         assertTrue(request.userPrompt.contains("你是一个冷幽默但不冒犯的人。"))
         assertTrue(request.userPrompt.contains("回复短一点，轻轻调侃。"))
         assertFalse(request.userPrompt.contains("上下文可能来自 OCR"))
-        assertFalse(request.userPrompt.contains("橄回/撒回/澈回"))
+        assertFalse(request.userPrompt.contains("近形错"))
         assertTrue(request.systemPrompt.contains("输出协议"))
         assertTrue(request.userPrompt.contains("今晚有空吗？"))
         assertEquals(2f, request.temperature)
         assertEquals(120, request.maxTokens)
         assertEquals(1, request.candidateCount)
+    }
+
+    @Test
+    fun build_normalizes_temperature_to_one_decimal_place() {
+        val request = DefaultPromptBuilder.build(
+            context = chatContext(
+                listOf(chatMessage(id = "m1", role = ChatRole.FRIEND, content = "今晚有空吗？"))
+            ),
+            settings = AppSettings(temperature = 0.699999988079071f),
+            styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
+        )
+
+        assertEquals(0.7f, request.temperature, 0.0f)
     }
 
     @Test
@@ -85,7 +98,7 @@ class DefaultPromptBuilderTest {
         )
 
         assertTrue(latestFriendRequest.userPrompt.contains("上下文可能来自 OCR"))
-        assertTrue(latestFriendRequest.userPrompt.contains("橄回/撒回/澈回"))
+        assertTrue(latestFriendRequest.userPrompt.contains("近形错"))
 
         val accessibilityOnlyRequest = DefaultPromptBuilder.build(
             context = chatContext(
@@ -186,7 +199,7 @@ class DefaultPromptBuilderTest {
         )
 
         assertFalse(request.userPrompt.contains("my private draft"))
-        assertFalse(request.userPrompt.contains("鑱婂ぉ涓婁笅鏂囷細"))
+        assertFalse(request.userPrompt.contains("聊天上下文："))
     }
 
     @Test
