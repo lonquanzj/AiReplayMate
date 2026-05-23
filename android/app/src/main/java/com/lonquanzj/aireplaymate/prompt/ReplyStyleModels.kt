@@ -175,6 +175,13 @@ data class ReplyStyleProfile(
             ReplyStyleMode.PLAYBOOK -> playbookConfig.label
             ReplyStyleMode.POLISH -> polishGoalConfig.label
         }
+
+    val candidatePanelLabel: String
+        get() = when (mode) {
+            ReplyStyleMode.QUICK_REPLY -> "${personaConfig.label} · ${mode.label}"
+            ReplyStyleMode.PLAYBOOK -> "${personaConfig.label} · ${playbookConfig.label}"
+            ReplyStyleMode.POLISH -> "${personaConfig.label} · ${polishGoalConfig.label}"
+        }
 }
 
 object ReplyStyleCatalog {

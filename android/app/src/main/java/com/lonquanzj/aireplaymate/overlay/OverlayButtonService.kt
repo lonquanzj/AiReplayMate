@@ -308,7 +308,7 @@ class OverlayButtonService : Service() {
 
         panel.addView(
             panelHeader(
-                title = "候选回复 · ${styleProfile.shortLabel}",
+                title = styleProfile.candidatePanelLabel,
                 actionLabel = "⟳ 重新生成",
                 onAction = {
                     OverlayDiagnosticsStore.onDone("用户重新生成候选")
