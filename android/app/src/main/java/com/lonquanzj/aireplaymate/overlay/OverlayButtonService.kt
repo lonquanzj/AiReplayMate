@@ -3,6 +3,7 @@ package com.lonquanzj.aireplaymate.overlay
 import android.animation.Animator
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Service
 import android.content.Intent
 import android.graphics.Color
@@ -20,12 +21,15 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.lonquanzj.aireplaymate.R
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
@@ -59,6 +63,12 @@ class OverlayButtonService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isGeneratingCandidates = false
     private var floatingButtonAnimator: AnimatorSet? = null
+    private var floatingIdleAnimator: AnimatorSet? = null
+    private var idleBlinkRunnable: Runnable? = null
+    private var dockAnimator: ValueAnimator? = null
+    private var floatingAvatarView: ImageView? = null
+    private var isDocked = false
+    private var dockedSide: DockedSide? = null
     private val progressIndicatorAnimators = mutableListOf<Animator>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -104,6 +114,7 @@ class OverlayButtonService : Service() {
         }
         overlayView = null
         floatingButtonView = null
+        floatingAvatarView = null
         windowManager = null
         OverlayServiceStateStore.onStopped()
         serviceScope.cancel()
@@ -124,8 +135,8 @@ class OverlayButtonService : Service() {
         button.addView(createFloatingButtonIcon())
 
         val params = WindowManager.LayoutParams(
-            dp(44),
-            dp(44),
+            dp(FLOATING_BUTTON_SIZE_DP),
+            dp(FLOATING_BUTTON_SIZE_DP),
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -141,6 +152,7 @@ class OverlayButtonService : Service() {
         floatingButtonView = button
         attachDragHandler(button, params)
         windowManager?.addView(button, params)
+        startFloatingIdleAnimation()
     }
 
     private fun attachDragHandler(
@@ -158,6 +170,8 @@ class OverlayButtonService : Service() {
         view.setOnTouchListener { target, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    dockAnimator?.cancel()
+                    undockFloatingAvatar()
                     startX = params.x
                     startY = params.y
                     touchX = event.rawX
@@ -180,6 +194,7 @@ class OverlayButtonService : Service() {
                     if (kotlin.math.abs(dx) > DRAG_SLOP || kotlin.math.abs(dy) > DRAG_SLOP) {
                         moved = true
                         longPressRunnable?.let(target::removeCallbacks)
+                        stopFloatingIdleAnimation()
                     }
                     params.x = startX + dx
                     params.y = startY + dy
@@ -191,6 +206,8 @@ class OverlayButtonService : Service() {
                     longPressRunnable?.let(target::removeCallbacks)
                     if (!moved && !longPressTriggered) {
                         target.performClick()
+                    } else if (moved) {
+                        dockFloatingButton(target, params)
                     }
                     true
                 }
@@ -1181,6 +1198,7 @@ class OverlayButtonService : Service() {
         val button = floatingButtonView ?: return
         button.background = floatingButtonBackground(isLoading)
         if (isLoading) {
+            stopFloatingIdleAnimation()
             startFloatingButtonAnimation(button)
         } else {
             stopFloatingButtonAnimation()
@@ -1188,6 +1206,9 @@ class OverlayButtonService : Service() {
             button.scaleX = 1f
             button.scaleY = 1f
             button.translationZ = 0f
+            if (!isDocked) {
+                startFloatingIdleAnimation()
+            }
         }
     }
 
@@ -1222,86 +1243,152 @@ class OverlayButtonService : Service() {
     }
 
     private fun floatingButtonBackground(isLoading: Boolean): GradientDrawable {
-        val colors = if (isLoading) {
-            intArrayOf(0xE8C59BFF.toInt(), 0xE87749F2.toInt())
-        } else {
-            intArrayOf(0xE8AF89FF.toInt(), 0xE8653BE6.toInt())
-        }
-        return GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
+        return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setStroke(dp(1), 0x4DFFFFFF)
+            setColor(Color.TRANSPARENT)
         }
     }
 
     private fun createFloatingButtonIcon(): View {
-        val icon = FrameLayout(this).apply {
+        return FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-        }
-
-        val bubble = FrameLayout(this).apply {
-            background = roundedBackground(0xF7FFFFFF.toInt(), dp(12).toFloat())
-            elevation = 3f
-        }
-        icon.addView(
-            bubble,
-            FrameLayout.LayoutParams(dp(22), dp(16), Gravity.CENTER).apply {
-                topMargin = dp(-2)
-            }
-        )
-
-        val tail = View(this).apply {
-            background = roundedBackground(0xF7FFFFFF.toInt(), dp(3).toFloat())
-            rotation = 45f
-        }
-        icon.addView(
-            tail,
-            FrameLayout.LayoutParams(dp(6), dp(6), Gravity.CENTER).apply {
-                topMargin = dp(11)
-                marginStart = dp(1)
-            }
-        )
-
-        repeat(3) { index ->
-            bubble.addView(
-                View(this).apply {
-                    background = roundedBackground(0xFF7C52FF.toInt(), dp(2).toFloat())
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            addView(
+                ImageView(this@OverlayButtonService).apply {
+                    setImageResource(R.drawable.floating_avatar_idle)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    adjustViewBounds = false
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    floatingAvatarView = this
                 },
-                FrameLayout.LayoutParams(dp(3), dp(3), Gravity.CENTER).apply {
-                    val spacing = dp(5)
-                    when (index) {
-                        0 -> marginEnd = spacing * 2
-                        2 -> marginStart = spacing * 2
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER
+                )
+            )
+        }
+    }
+
+    private fun dockFloatingButton(
+        view: View,
+        params: WindowManager.LayoutParams
+    ) {
+        if (isGeneratingCandidates) return
+
+        stopFloatingIdleAnimation()
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val visibleWidth = dp(DOCKED_VISIBLE_WIDTH_DP)
+        val verticalMargin = dp(12)
+        val centerX = params.x + params.width / 2
+        val side = if (centerX < screenWidth / 2) DockedSide.LEFT else DockedSide.RIGHT
+        val targetX = when (side) {
+            DockedSide.LEFT -> -(params.width - visibleWidth)
+            DockedSide.RIGHT -> screenWidth - visibleWidth
+        }
+        val targetY = params.y.coerceIn(
+            verticalMargin,
+            (screenHeight - params.height - verticalMargin).coerceAtLeast(verticalMargin)
+        )
+
+        dockAnimator?.cancel()
+        dockAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = DOCK_ANIMATION_DURATION_MS
+            interpolator = DecelerateInterpolator()
+            val startX = params.x
+            val startY = params.y
+            var cancelled = false
+            addUpdateListener { animator ->
+                val fraction = animator.animatedValue as Float
+                params.x = (startX + (targetX - startX) * fraction).toInt()
+                params.y = (startY + (targetY - startY) * fraction).toInt()
+                windowManager?.updateViewLayout(view, params)
+            }
+            addListener(
+                object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (cancelled) return
+                        isDocked = true
+                        dockedSide = side
+                        floatingAvatarView?.setImageResource(
+                            when (side) {
+                                DockedSide.LEFT -> R.drawable.floating_avatar_peek_left
+                                DockedSide.RIGHT -> R.drawable.floating_avatar_wink_right
+                            }
+                        )
+                        dockAnimator = null
+                    }
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        cancelled = true
+                        dockAnimator = null
                     }
                 }
             )
+            start()
         }
+    }
 
-        val sparkle = FrameLayout(this)
-        sparkle.addView(
-            View(this).apply {
-                background = roundedBackground(0xD9FFFFFF.toInt(), dp(1).toFloat())
-            },
-            FrameLayout.LayoutParams(dp(8), dp(2), Gravity.CENTER)
-        )
-        sparkle.addView(
-            View(this).apply {
-                background = roundedBackground(0xD9FFFFFF.toInt(), dp(1).toFloat())
-                rotation = 90f
-            },
-            FrameLayout.LayoutParams(dp(8), dp(2), Gravity.CENTER)
-        )
-        icon.addView(
-            sparkle,
-            FrameLayout.LayoutParams(dp(7), dp(7), Gravity.TOP or Gravity.END).apply {
-                topMargin = dp(10)
-                marginEnd = dp(9)
+    private fun undockFloatingAvatar() {
+        if (!isDocked && dockedSide == null) return
+        isDocked = false
+        dockedSide = null
+        floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
+        if (!isGeneratingCandidates) {
+            startFloatingIdleAnimation()
+        }
+    }
+
+    private fun startFloatingIdleAnimation() {
+        if (isGeneratingCandidates || isDocked || idleBlinkRunnable != null) return
+        val avatar = floatingAvatarView ?: return
+        val delay = (IDLE_BLINK_MIN_DELAY_MS..IDLE_BLINK_MAX_DELAY_MS).random()
+        idleBlinkRunnable = Runnable {
+            idleBlinkRunnable = null
+            if (!isGeneratingCandidates && !isDocked && avatar.parent != null) {
+                avatar.setImageResource(R.drawable.floating_avatar_wink_right)
+                floatingIdleAnimator = AnimatorSet().apply {
+                    val blink = ObjectAnimator.ofFloat(avatar, View.SCALE_Y, 1f, 0.96f, 1f).apply {
+                        duration = IDLE_BLINK_DURATION_MS
+                    }
+                    val breatheX = ObjectAnimator.ofFloat(avatar, View.SCALE_X, 1f, 1.025f, 1f).apply {
+                        duration = IDLE_BLINK_DURATION_MS
+                    }
+                    playTogether(blink, breatheX)
+                    addListener(
+                        object : android.animation.AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                avatar.setImageResource(R.drawable.floating_avatar_idle)
+                                floatingIdleAnimator = null
+                                startFloatingIdleAnimation()
+                            }
+
+                            override fun onAnimationCancel(animation: Animator) {
+                                avatar.setImageResource(R.drawable.floating_avatar_idle)
+                                floatingIdleAnimator = null
+                            }
+                        }
+                    )
+                    start()
+                }
             }
-        )
+        }.also { mainHandler.postDelayed(it, delay) }
+    }
 
-        return icon
+    private fun stopFloatingIdleAnimation() {
+        idleBlinkRunnable?.let(mainHandler::removeCallbacks)
+        idleBlinkRunnable = null
+        floatingIdleAnimator?.cancel()
+        floatingIdleAnimator = null
+        if (!isDocked) {
+            floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
+        }
+        floatingAvatarView?.scaleX = 1f
+        floatingAvatarView?.scaleY = 1f
     }
 
     private fun overlayPanelBackground(): GradientDrawable {
@@ -1429,6 +1516,9 @@ class OverlayButtonService : Service() {
     private fun stopFloatingButtonAnimation() {
         floatingButtonAnimator?.cancel()
         floatingButtonAnimator = null
+        dockAnimator?.cancel()
+        dockAnimator = null
+        stopFloatingIdleAnimation()
     }
 
     private fun startProgressIndicatorAnimation(indicator: LinearLayout) {
@@ -1458,7 +1548,6 @@ class OverlayButtonService : Service() {
     private fun stopProgressIndicatorAnimation() {
         progressIndicatorAnimators.forEach { it.cancel() }
         progressIndicatorAnimators.clear()
-        mainHandler.removeCallbacksAndMessages(null)
     }
 
     private fun dp(value: Int): Int {
@@ -1484,6 +1573,11 @@ class OverlayButtonService : Service() {
         POLISH("润色")
     }
 
+    private enum class DockedSide {
+        LEFT,
+        RIGHT
+    }
+
     private data class StyleMenuGroup<T>(
         val id: String,
         val label: String,
@@ -1494,6 +1588,12 @@ class OverlayButtonService : Service() {
         const val DRAG_SLOP = 8
         const val LONG_PRESS_TIMEOUT_MS = 520L
         const val STYLE_MENU_ALL_GROUP_ID = "all"
+        const val FLOATING_BUTTON_SIZE_DP = 56
+        const val DOCKED_VISIBLE_WIDTH_DP = 44
+        const val DOCK_ANIMATION_DURATION_MS = 220L
+        const val IDLE_BLINK_MIN_DELAY_MS = 2_000L
+        const val IDLE_BLINK_MAX_DELAY_MS = 4_000L
+        const val IDLE_BLINK_DURATION_MS = 360L
     }
 
     private data class OverlayCandidate(
