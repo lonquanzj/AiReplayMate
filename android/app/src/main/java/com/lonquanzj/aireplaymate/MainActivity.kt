@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -46,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -125,8 +127,8 @@ internal data class PermissionSnapshot(
 private enum class HomeTab(val label: String) {
     MAIN("主界面"),
     STYLE("回复风格"),
-    ADVANCED("高级调试"),
-    LLM("LLM 设置")
+    LLM("LLM 设置"),
+    ADVANCED("高级调试")
 }
 
 class MainActivity : ComponentActivity() {
@@ -276,16 +278,27 @@ private fun MainScreen(
     ) {
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.statusBars
-        ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
+            contentWindowInsets = WindowInsets.statusBars,
+            bottomBar = {
                 ScrollableTabRow(
                     selectedTabIndex = pagerState.currentPage,
-                    edgePadding = 12.dp
+                    edgePadding = 12.dp,
+                    indicator = { tabPositions ->
+                        val currentTab = tabPositions[pagerState.currentPage]
+                        Box(Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .offset(x = currentTab.left)
+                                    .width(currentTab.width)
+                                    .height(3.dp)
+                                    .background(
+                                        color = TabRowDefaults.primaryContentColor,
+                                        shape = RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp)
+                                    )
+                            )
+                        }
+                    }
                 ) {
                     HomeTab.entries.forEachIndexed { index, tab ->
                         Tab(
@@ -299,7 +312,13 @@ private fun MainScreen(
                         )
                     }
                 }
-
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier

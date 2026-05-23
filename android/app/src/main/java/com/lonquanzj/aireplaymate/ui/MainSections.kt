@@ -176,8 +176,6 @@ internal fun MainTabContent(
             messages = previewMessages
         )
 
-        DiagnosticLogSection(logState = diagnosticLogState)
-
         AboutEntry(onClick = onShowAboutDialog)
 
         Spacer(modifier = Modifier.height(24.dp))
