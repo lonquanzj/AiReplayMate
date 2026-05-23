@@ -328,7 +328,7 @@ class OverlayButtonService : Service() {
 
         panel.addView(
             TextView(this).apply {
-                text = "来源：${sessionResult.candidateSource}"
+                text = sessionResult.toCandidatePanelSubtitle(settings, styleProfile)
                 textSize = 12f
                 setTextColor(0xFF7A659C.toInt())
                 setPadding(0, dp(4), 0, 0)
