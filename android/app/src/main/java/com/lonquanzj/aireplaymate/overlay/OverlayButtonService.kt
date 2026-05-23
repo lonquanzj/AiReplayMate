@@ -14,12 +14,14 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -31,8 +33,10 @@ import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
+import com.lonquanzj.aireplaymate.prompt.ReplyPlaybookConfig
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
 import com.lonquanzj.aireplaymate.session.RealReplySessionPhase
 import com.lonquanzj.aireplaymate.session.RealReplySessionRunner
@@ -366,48 +370,157 @@ class OverlayButtonService : Service() {
         val catalog = ReplyStyleCatalogStore.load(this)
         removeCandidatePanel()
 
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = overlayPanelBackground()
-            elevation = 14f
-        }
+        run {
+            val playbooksByCategory = catalog.playbooks.groupBy { it.categoryLabel }
+            var selectedTab = StyleMenuTab.PERSONA
+            val selectedGroupIds = mutableMapOf(
+                StyleMenuTab.PERSONA to STYLE_MENU_ALL_GROUP_ID,
+                StyleMenuTab.PLAYBOOK to playbooksByCategory.keys.firstOrNull().orEmpty(),
+                StyleMenuTab.POLISH to STYLE_MENU_ALL_GROUP_ID
+            )
 
-        content.addView(
-            panelHeader("选择回复风格") {
-                removeCandidatePanel()
+            val content = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = overlayPanelBackground()
+                elevation = 14f
             }
-        )
 
-        content.addView(menuSectionLabel("角色"))
-        addCompactGrid(
-            parent = content,
-            items = catalog.personas,
-            columns = 5,
-            topMarginDp = 8
-        ) { personaConfig ->
-            val profile = current.copy(
-                mode = ReplyStyleMode.QUICK_REPLY,
-                persona = ReplyStyleCatalog.personaFromConfig(personaConfig),
-                personaConfig = personaConfig
+            content.addView(
+                panelHeader("选择回复风格") {
+                    removeCandidatePanel()
+                }
             )
-            menuButton(
-                personaConfig.label,
-                profile,
-                isSelected = personaConfig.id == current.personaConfig.id
+
+            val tabRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            content.addView(
+                tabRow,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dp(10)
+                }
             )
+            content.addView(
+                body,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            val scrollView = ScrollView(this).apply {
+                addView(content)
+            }
+            candidatePanelView = scrollView
+            var params: WindowManager.LayoutParams? = null
+
+            fun updateMenu() {
+                tabRow.removeAllViews()
+                StyleMenuTab.entries.forEachIndexed { index, tab ->
+                    tabRow.addView(
+                        styleMenuTabButton(tab.label, tab == selectedTab) {
+                            selectedTab = tab
+                            updateMenu()
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            if (index > 0) {
+                                marginStart = dp(6)
+                            }
+                        }
+                    )
+                }
+
+                body.removeAllViews()
+                renderStyleMenuContent(
+                    parent = body,
+                    tab = selectedTab,
+                    current = current,
+                    catalog = catalog,
+                    playbooksByCategory = playbooksByCategory,
+                    selectedGroupId = selectedGroupIds[selectedTab],
+                    onGroupSelected = { tab, groupId ->
+                        selectedGroupIds[tab] = groupId
+                        updateMenu()
+                    }
+                )
+
+                if (scrollView.parent != null) {
+                    val nextParams = anchoredPanelLayoutParams(
+                        contentView = scrollView,
+                        panelWidth = panelWidthDp(328),
+                        maxPanelHeight = styleMenuMaxHeight()
+                    )
+                    params = nextParams
+                    windowManager?.updateViewLayout(scrollView, nextParams)
+                }
+            }
+
+            updateMenu()
+            params = anchoredPanelLayoutParams(
+                contentView = scrollView,
+                panelWidth = panelWidthDp(328),
+                maxPanelHeight = styleMenuMaxHeight()
+            )
+            windowManager?.addView(scrollView, params)
         }
 
-        content.addView(menuSectionLabel("话术宝典"))
-        catalog.playbooks
-            .groupBy { it.categoryLabel }
-            .forEach { (categoryLabel, playbooks) ->
-                content.addView(menuSubsectionLabel(categoryLabel))
-                addCompactGrid(
-                    parent = content,
-                    items = playbooks,
-                    columns = 5,
-                    topMarginDp = 6
+    }
+
+    private fun renderStyleMenuContent(
+        parent: LinearLayout,
+        tab: StyleMenuTab,
+        current: ReplyStyleProfile,
+        catalog: ReplyStyleCatalogState,
+        playbooksByCategory: Map<String, List<ReplyPlaybookConfig>>,
+        selectedGroupId: String?,
+        onGroupSelected: (StyleMenuTab, String) -> Unit
+    ) {
+        when (tab) {
+            StyleMenuTab.PERSONA -> {
+                renderStyleMenuPage(
+                    parent = parent,
+                    groups = listOf(
+                        StyleMenuGroup(
+                            id = STYLE_MENU_ALL_GROUP_ID,
+                            label = "全部",
+                            items = catalog.personas
+                        )
+                    ),
+                    selectedGroupId = selectedGroupId,
+                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
+                ) { personaConfig ->
+                    val profile = current.copy(
+                        mode = ReplyStyleMode.QUICK_REPLY,
+                        persona = ReplyStyleCatalog.personaFromConfig(personaConfig),
+                        personaConfig = personaConfig
+                    )
+                    menuButton(
+                        personaConfig.label,
+                        profile,
+                        isSelected = personaConfig.id == current.personaConfig.id
+                    )
+                }
+            }
+
+            StyleMenuTab.PLAYBOOK -> {
+                renderStyleMenuPage(
+                    parent = parent,
+                    groups = playbooksByCategory.map { (category, playbooks) ->
+                        StyleMenuGroup(
+                            id = category,
+                            label = category,
+                            items = playbooks
+                        )
+                    },
+                    selectedGroupId = selectedGroupId,
+                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
                 ) { playbook ->
                     val profile = current.copy(
                         mode = ReplyStyleMode.PLAYBOOK,
@@ -417,36 +530,103 @@ class OverlayButtonService : Service() {
                     menuButton(
                         playbook.label,
                         profile,
-                        persistAsDefault = false
+                        persistAsDefault = false,
+                        isSelected = playbook.id == current.playbookConfig.id
                     )
                 }
             }
 
-        content.addView(menuSectionLabel("润色表达"))
-        addCompactGrid(
-            parent = content,
-            items = catalog.polishGoals,
-            columns = 5,
-            topMarginDp = 8
-        ) { goal ->
-            val profile = current.copy(
-                mode = ReplyStyleMode.POLISH,
-                polishGoal = ReplyStyleCatalog.polishGoalFromConfig(goal),
-                polishGoalConfig = goal
-            )
-            menuButton(goal.label, profile, persistAsDefault = false, requiresDraft = true)
+            StyleMenuTab.POLISH -> {
+                renderStyleMenuPage(
+                    parent = parent,
+                    groups = listOf(
+                        StyleMenuGroup(
+                            id = STYLE_MENU_ALL_GROUP_ID,
+                            label = "全部",
+                            items = catalog.polishGoals
+                        )
+                    ),
+                    selectedGroupId = selectedGroupId,
+                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
+                ) { goal ->
+                    val profile = current.copy(
+                        mode = ReplyStyleMode.POLISH,
+                        polishGoal = ReplyStyleCatalog.polishGoalFromConfig(goal),
+                        polishGoalConfig = goal
+                    )
+                    menuButton(
+                        goal.label,
+                        profile,
+                        persistAsDefault = false,
+                        requiresDraft = true,
+                        isSelected = goal.id == current.polishGoalConfig.id
+                    )
+                }
+            }
         }
+    }
 
-        val scrollView = ScrollView(this).apply {
-            addView(content)
-        }
-        candidatePanelView = scrollView
-        val params = anchoredPanelLayoutParams(
-            contentView = scrollView,
-            panelWidth = panelWidthDp(336),
-            panelHeight = dp(500)
+    private fun <T> renderStyleMenuPage(
+        parent: LinearLayout,
+        groups: List<StyleMenuGroup<T>>,
+        selectedGroupId: String?,
+        onGroupSelected: (String) -> Unit,
+        viewFactory: (T) -> View
+    ) {
+        if (groups.isEmpty()) return
+        val activeGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
+        addStyleMenuGroupStrip(
+            parent = parent,
+            groups = groups,
+            selectedGroupId = activeGroup.id,
+            onGroupSelected = onGroupSelected
         )
-        windowManager?.addView(scrollView, params)
+        addCompactGrid(
+            parent = parent,
+            items = activeGroup.items,
+            columns = 4,
+            topMarginDp = 8,
+            gapDp = 8,
+            viewFactory = viewFactory
+        )
+    }
+
+    private fun <T> addStyleMenuGroupStrip(
+        parent: LinearLayout,
+        groups: List<StyleMenuGroup<T>>,
+        selectedGroupId: String,
+        onGroupSelected: (String) -> Unit
+    ) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        groups.forEachIndexed { index, group ->
+            row.addView(
+                styleMenuGroupButton(group.label, group.id == selectedGroupId) {
+                    onGroupSelected(group.id)
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (index > 0) {
+                        marginStart = dp(8)
+                    }
+                }
+            )
+        }
+        parent.addView(
+            HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(row)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8)
+            }
+        )
     }
 
     private fun showFailurePanel(
@@ -700,6 +880,54 @@ class OverlayButtonService : Service() {
         }
     }
 
+    private fun styleMenuTabButton(
+        label: String,
+        isSelected: Boolean,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 12f
+            setTextColor(if (isSelected) Color.WHITE else 0xFF3F2B78.toInt())
+            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            minHeight = dp(42)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = if (isSelected) {
+                compactSelectedMenuButtonBackground()
+            } else {
+                compactMenuButtonBackground()
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun styleMenuGroupButton(
+        label: String,
+        isSelected: Boolean,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 12f
+            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF7A659C.toInt())
+            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            minHeight = dp(32)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = if (isSelected) {
+                selectedStyleMenuGroupBackground()
+            } else {
+                styleMenuGroupBackground()
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
     private fun menuButton(
         label: String,
         profile: ReplyStyleProfile,
@@ -712,10 +940,16 @@ class OverlayButtonService : Service() {
             textSize = 12f
             setTextColor(if (isSelected) Color.WHITE else 0xFF3F2B78.toInt())
             typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            maxLines = 2
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(8), dp(4), dp(8))
-            background = if (isSelected) selectedMenuButtonBackground() else softPurpleCardBackground()
+            minHeight = dp(42)
+            setPadding(dp(6), dp(8), dp(6), dp(8))
+            background = if (isSelected) {
+                compactSelectedMenuButtonBackground()
+            } else {
+                compactMenuButtonBackground()
+            }
             setOnClickListener {
                 val draftText = if (requiresDraft) {
                     val readResult = AccessibilityActionBridge.tryReadInputDraft()
@@ -833,11 +1067,12 @@ class OverlayButtonService : Service() {
         items: List<T>,
         columns: Int,
         topMarginDp: Int,
+        gapDp: Int = 8,
         viewFactory: (T) -> View
     ) {
         if (items.isEmpty()) return
-        val horizontalGap = dp(8)
-        val verticalGap = dp(8)
+        val horizontalGap = dp(gapDp)
+        val verticalGap = dp(gapDp)
         items.chunked(columns).forEachIndexed { rowIndex, rowItems ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -877,7 +1112,8 @@ class OverlayButtonService : Service() {
     private fun anchoredPanelLayoutParams(
         contentView: View,
         panelWidth: Int,
-        panelHeight: Int = WindowManager.LayoutParams.WRAP_CONTENT
+        panelHeight: Int = WindowManager.LayoutParams.WRAP_CONTENT,
+        maxPanelHeight: Int? = null
     ): WindowManager.LayoutParams {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
@@ -893,10 +1129,14 @@ class OverlayButtonService : Service() {
         val actualPanelWidth = panelWidth.coerceAtMost(screenWidth - horizontalMargin * 2)
         val panelX = horizontalMargin
         val measuredHeight = resolvePanelHeight(contentView, actualPanelWidth, panelHeight)
+        val actualPanelHeight = maxPanelHeight
+            ?.let { measuredHeight.coerceAtMost(it) }
+            ?: panelHeight
 
         val belowY = bubbleY + bubbleHeight + gap
-        val aboveY = bubbleY - measuredHeight - gap
-        val panelY = if (belowY + measuredHeight + verticalMargin <= screenHeight) {
+        val layoutHeight = if (actualPanelHeight > 0) actualPanelHeight else measuredHeight
+        val aboveY = bubbleY - layoutHeight - gap
+        val panelY = if (belowY + layoutHeight + verticalMargin <= screenHeight) {
             belowY
         } else {
             aboveY.coerceAtLeast(verticalMargin)
@@ -904,7 +1144,7 @@ class OverlayButtonService : Service() {
 
         return WindowManager.LayoutParams(
             actualPanelWidth,
-            panelHeight,
+            actualPanelHeight,
             overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -931,6 +1171,10 @@ class OverlayButtonService : Service() {
         val screenWidth = resources.displayMetrics.widthPixels
         val horizontalMargin = dp(16)
         return minOf(dp(desiredDp), screenWidth - horizontalMargin * 2)
+    }
+
+    private fun styleMenuMaxHeight(): Int {
+        return (resources.displayMetrics.heightPixels * 0.45f).toInt()
     }
 
     private fun updateFloatingButtonLoading(isLoading: Boolean) {
@@ -1082,6 +1326,46 @@ class OverlayButtonService : Service() {
         }
     }
 
+    private fun compactMenuButtonBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFFF3EEFF.toInt(), 0xFFE9E0FF.toInt())
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), 0x26A07CFF)
+        }
+    }
+
+    private fun compactSelectedMenuButtonBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF7A57E8.toInt(), 0xFF5B3DC8.toInt())
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), 0x667A57E8)
+        }
+    }
+
+    private fun styleMenuGroupBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0x00FFFFFF)
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), 0x1A7A57E8)
+        }
+    }
+
+    private fun selectedStyleMenuGroupBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0x1A7A57E8)
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), 0x667A57E8)
+        }
+    }
+
     private fun selectedMenuButtonBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
@@ -1194,9 +1478,22 @@ class OverlayButtonService : Service() {
         }
     }
 
+    private enum class StyleMenuTab(val label: String) {
+        PERSONA("角色"),
+        PLAYBOOK("话术"),
+        POLISH("润色")
+    }
+
+    private data class StyleMenuGroup<T>(
+        val id: String,
+        val label: String,
+        val items: List<T>
+    )
+
     private companion object {
         const val DRAG_SLOP = 8
         const val LONG_PRESS_TIMEOUT_MS = 520L
+        const val STYLE_MENU_ALL_GROUP_ID = "all"
     }
 
     private data class OverlayCandidate(
