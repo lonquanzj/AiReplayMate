@@ -28,11 +28,10 @@ class OcrTextPostProcessorTest {
         )
 
         assertEquals(8, result.rawLineCount)
-        assertEquals(3, result.keptLineCount)
-        assertEquals(5, result.droppedLineCount)
+        assertEquals(4, result.keptLineCount)
+        assertEquals(4, result.droppedLineCount)
         assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.CHROME_TEXT }.count)
         assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.TIME_OR_BADGE }.count)
-        assertEquals(1, result.filterSummaries.first { it.reason == OcrFilterReason.DUPLICATE }.count)
         assertEquals(2, result.messages.size)
         assertEquals(ChatRole.FRIEND, result.messages[0].role)
         assertEquals("在忙吗\n方便回我一下", result.messages[0].content)
@@ -101,14 +100,10 @@ class OcrTextPostProcessorTest {
             screenHeight = 2000
         )
 
-        assertEquals(1, result.messages.size)
-        assertEquals("7:57 我刚到", result.messages.single().content)
-        assertEquals(
-            2,
-            result.filterSummaries.first {
-                it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET
-            }.count
-        )
+        assertTrue(result.messages.any { it.content == IMAGE_PLACEHOLDER_TEXT && it.role == ChatRole.ME })
+        assertTrue(result.messages.any { it.content == IMAGE_PLACEHOLDER_TEXT && it.role == ChatRole.FRIEND })
+        assertTrue(result.messages.any { it.content == "我刚到" })
+        assertTrue(result.filterSummaries.none { it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET })
     }
 
     @Test
@@ -126,15 +121,59 @@ class OcrTextPostProcessorTest {
             screenHeight = 2000
         )
 
-        assertEquals(1, result.messages.size)
-        assertEquals(ChatRole.FRIEND, result.messages.single().role)
-        assertEquals("你又撤回了什么\n见不得人的消息", result.messages.single().content)
+        assertTrue(result.messages.any { it.content == IMAGE_PLACEHOLDER_TEXT })
+        assertTrue(result.messages.any { it.content.contains("你又撤回了什么") })
+        assertTrue(result.messages.any { it.content.contains("见不得人的消息") })
         assertEquals(2, result.filterSummaries.first { it.reason == OcrFilterReason.SYSTEM_NOTICE }.count)
-        assertEquals(
-            2,
-            result.filterSummaries.first {
-                it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET
-            }.count
+        assertTrue(result.filterSummaries.none { it.reason == OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET })
+    }
+
+    @Test
+    fun toChatMessages_keeps_today_sentence_and_removes_inline_time_tokens() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("今天天气不错", Rect(70, 820, 430, 860)),
+                OcrRecognizedLine("晚上9:13", Rect(440, 900, 620, 940)),
+                OcrRecognizedLine("晚止9:13", Rect(640, 980, 840, 1020))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
         )
+
+        assertTrue(result.messages.any { it.content.contains("今天天气不错") })
+        assertTrue(result.messages.none { it.content.contains("9:13") || it.content.contains("9：13") })
+        assertTrue(result.messages.none { it.content.contains("晚止") })
+    }
+
+    @Test
+    fun toChatMessages_marks_text_as_from_image_when_same_bubble_contains_image_placeholder() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("早啊", Rect(680, 520, 920, 550)),
+                OcrRecognizedLine("2:01 -", Rect(700, 552, 930, 580))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertEquals(1, result.messages.size)
+        assertEquals(ChatRole.ME, result.messages.single().role)
+        assertEquals("早啊$IMAGE_SOURCE_MARKER", result.messages.single().content)
+    }
+
+    @Test
+    fun toChatMessages_resolves_unknown_image_placeholder_role_by_nearby_message() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("今天天气不错", Rect(70, 620, 380, 650)),
+                OcrRecognizedLine("2:01 -", Rect(500, 656, 710, 686))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertTrue(result.messages.any {
+            it.content == IMAGE_PLACEHOLDER_TEXT && it.role != ChatRole.UNKNOWN
+        })
     }
 }

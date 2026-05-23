@@ -1,5 +1,6 @@
 package com.lonquanzj.aireplaymate.overlay
 
+import com.lonquanzj.aireplaymate.context.ContextBuildStats
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,10 @@ data class OverlayDiagnosticsState(
     val accessibilityMessageCount: Int = 0,
     val ocrMessageCount: Int = 0,
     val mergedMessageCount: Int = 0,
+    val contextDroppedEmptyCount: Int = 0,
+    val contextDroppedNoiseCount: Int = 0,
+    val contextDroppedSystemCount: Int = 0,
+    val contextDroppedCrossSourceDuplicateCount: Int = 0,
     val candidateCount: Int = 0,
     val candidateSource: String = "暂无",
     val usedOcr: Boolean = false,
@@ -66,15 +71,24 @@ object OverlayDiagnosticsStore {
         accessibilityMessageCount: Int,
         ocrMessageCount: Int,
         mergedMessageCount: Int,
-        usedOcr: Boolean
+        usedOcr: Boolean,
+        contextBuildStats: ContextBuildStats = ContextBuildStats()
     ) {
+        val droppedSummary = "empty=${contextBuildStats.droppedEmptyCount}, " +
+            "noise=${contextBuildStats.droppedNoiseCount}, " +
+            "system=${contextBuildStats.droppedSystemCount}, " +
+            "dup=${contextBuildStats.droppedCrossSourceDuplicateCount}"
         update(
             phase = OverlayRunPhase.BUILDING_CONTEXT,
-            status = "上下文已整理：Accessibility $accessibilityMessageCount 条，OCR $ocrMessageCount 条，合并 $mergedMessageCount 条",
-            step = "上下文：accessibility=$accessibilityMessageCount, ocr=$ocrMessageCount, merged=$mergedMessageCount",
+            status = "上下文已整理：Accessibility $accessibilityMessageCount 条，OCR $ocrMessageCount 条，合并 $mergedMessageCount 条，过滤($droppedSummary)",
+            step = "上下文：accessibility=$accessibilityMessageCount, ocr=$ocrMessageCount, merged=$mergedMessageCount, dropped=[$droppedSummary]",
             accessibilityMessageCount = accessibilityMessageCount,
             ocrMessageCount = ocrMessageCount,
             mergedMessageCount = mergedMessageCount,
+            contextDroppedEmptyCount = contextBuildStats.droppedEmptyCount,
+            contextDroppedNoiseCount = contextBuildStats.droppedNoiseCount,
+            contextDroppedSystemCount = contextBuildStats.droppedSystemCount,
+            contextDroppedCrossSourceDuplicateCount = contextBuildStats.droppedCrossSourceDuplicateCount,
             usedOcr = usedOcr
         )
     }
@@ -132,6 +146,10 @@ object OverlayDiagnosticsStore {
         accessibilityMessageCount: Int? = null,
         ocrMessageCount: Int? = null,
         mergedMessageCount: Int? = null,
+        contextDroppedEmptyCount: Int? = null,
+        contextDroppedNoiseCount: Int? = null,
+        contextDroppedSystemCount: Int? = null,
+        contextDroppedCrossSourceDuplicateCount: Int? = null,
         candidateCount: Int? = null,
         candidateSource: String? = null,
         usedOcr: Boolean? = null,
@@ -145,6 +163,11 @@ object OverlayDiagnosticsStore {
             accessibilityMessageCount = accessibilityMessageCount ?: current.accessibilityMessageCount,
             ocrMessageCount = ocrMessageCount ?: current.ocrMessageCount,
             mergedMessageCount = mergedMessageCount ?: current.mergedMessageCount,
+            contextDroppedEmptyCount = contextDroppedEmptyCount ?: current.contextDroppedEmptyCount,
+            contextDroppedNoiseCount = contextDroppedNoiseCount ?: current.contextDroppedNoiseCount,
+            contextDroppedSystemCount = contextDroppedSystemCount ?: current.contextDroppedSystemCount,
+            contextDroppedCrossSourceDuplicateCount =
+                contextDroppedCrossSourceDuplicateCount ?: current.contextDroppedCrossSourceDuplicateCount,
             candidateCount = candidateCount ?: current.candidateCount,
             candidateSource = candidateSource ?: current.candidateSource,
             usedOcr = usedOcr ?: current.usedOcr,

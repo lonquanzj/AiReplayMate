@@ -5,6 +5,7 @@ import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
 import com.lonquanzj.aireplaymate.accessibility.MessageSource
 import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.context.ConversationType
+import com.lonquanzj.aireplaymate.context.ContextBuildStats
 import com.lonquanzj.aireplaymate.context.ContextBuilder
 import com.lonquanzj.aireplaymate.context.DefaultContextBuilder
 import com.lonquanzj.aireplaymate.llm.LlmGateway
@@ -30,7 +31,8 @@ data class RealReplySessionContextSnapshot(
     val accessibilityMessageCount: Int,
     val ocrMessageCount: Int,
     val mergedMessageCount: Int,
-    val usedOcr: Boolean
+    val usedOcr: Boolean,
+    val contextBuildStats: ContextBuildStats = ContextBuildStats()
 )
 
 data class RealReplySessionResult(
@@ -72,17 +74,20 @@ class RealReplySessionRunner(
 
         onPhase(RealReplySessionPhase.BUILDING_CONTEXT, "页面校验通过，开始整理上下文")
         var usedOcr = false
+        var initialContextStats = ContextBuildStats()
         var chatContext = contextBuilder.build(
             accessibilityMessages = debugState.extractedMessages,
             targetApp = targetApp,
-            conversationType = conversationType
+            conversationType = conversationType,
+            onStats = { initialContextStats = it }
         )
         onContext(
             RealReplySessionContextSnapshot(
                 accessibilityMessageCount = debugState.extractedMessages.size,
                 ocrMessageCount = 0,
                 mergedMessageCount = chatContext.messages.size,
-                usedOcr = false
+                usedOcr = false,
+                contextBuildStats = initialContextStats
             )
         )
 
@@ -100,18 +105,22 @@ class RealReplySessionRunner(
             } finally {
                 onAfterOcrCapture()
             }
+
+            var mergedContextStats = ContextBuildStats()
             chatContext = contextBuilder.build(
                 accessibilityMessages = debugState.extractedMessages,
                 ocrMessages = ocrResult.messages,
                 targetApp = targetApp,
-                conversationType = conversationType
+                conversationType = conversationType,
+                onStats = { mergedContextStats = it }
             )
             onContext(
                 RealReplySessionContextSnapshot(
                     accessibilityMessageCount = debugState.extractedMessages.size,
                     ocrMessageCount = ocrResult.messages.size,
                     mergedMessageCount = chatContext.messages.size,
-                    usedOcr = true
+                    usedOcr = true,
+                    contextBuildStats = mergedContextStats
                 )
             )
             if (!chatContext.enoughForReply) {

@@ -16,7 +16,8 @@ data class ChatContext(
     val collectedAt: Long
 ) {
     val enoughForReply: Boolean
-        get() = messages.any { it.role == ChatRole.FRIEND } && messages.isNotEmpty()
+        get() = messages.any { it.role == ChatRole.FRIEND || it.role == ChatRole.UNKNOWN } &&
+            messages.isNotEmpty()
 
     val isLowConfidence: Boolean
         get() = messages.size < RECOMMENDED_MESSAGE_COUNT ||

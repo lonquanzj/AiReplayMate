@@ -31,14 +31,14 @@ class DefaultContextBuilderTest {
         )
 
         assertEquals(1, context.messages.size)
-        assertEquals(ChatRole.FRIEND, context.messages.single().role)
+        assertEquals(ChatRole.UNKNOWN, context.messages.single().role)
         assertEquals(MessageSource.ACCESSIBILITY, context.messages.single().source)
         assertEquals("你好", context.messages.single().content)
         assertTrue(context.enoughForReply)
     }
 
     @Test
-    fun build_prefers_higher_confidence_for_same_source_and_keeps_last_20_messages() {
+    fun build_keeps_ocr_duplicates_and_keeps_last_20_messages() {
         val accessibilityMessages = (0 until 24).map { index ->
             chatMessage(id = "m$index", role = ChatRole.FRIEND, content = "消息$index", confidence = 0.4f)
         }
@@ -67,7 +67,9 @@ class DefaultContextBuilderTest {
         )
 
         assertEquals(20, context.messages.size)
-        assertEquals("消息5", context.messages.first().content)
+        assertEquals("消息6", context.messages.first().content)
+        assertEquals("重复消息", context.messages[18].content)
+        assertEquals(0.2f, context.messages[18].confidence, 0.0001f)
         assertEquals("重复消息", context.messages.last().content)
         assertEquals(0.8f, context.messages.last().confidence, 0.0001f)
     }
@@ -89,7 +91,7 @@ class DefaultContextBuilderTest {
 
         assertEquals(11, context.messages.size)
         assertTrue(context.enoughForReply)
-        assertEquals(ChatRole.FRIEND, context.messages.first().role)
+        assertEquals(ChatRole.UNKNOWN, context.messages.first().role)
     }
 
     @Test
@@ -107,5 +109,59 @@ class DefaultContextBuilderTest {
 
         assertEquals(0, context.messages.size)
         assertFalse(context.enoughForReply)
+    }
+
+    @Test
+    fun build_keeps_normal_sentence_starting_with_today() {
+        val context = DefaultContextBuilder.build(
+            accessibilityMessages = listOf(
+                chatMessage(id = "a1", role = ChatRole.FRIEND, content = "今天天气不错")
+            ),
+            targetApp = "wechat",
+            conversationType = ConversationType.SINGLE_CHAT
+        )
+
+        assertEquals(1, context.messages.size)
+        assertEquals("今天天气不错", context.messages.single().content)
+    }
+
+    @Test
+    fun build_reports_context_filter_stats() {
+        var stats = ContextBuildStats()
+        DefaultContextBuilder.build(
+            accessibilityMessages = listOf(
+                chatMessage(id = "a-empty", role = ChatRole.FRIEND, content = "  "),
+                chatMessage(id = "a-time", role = ChatRole.FRIEND, content = "19:52"),
+                chatMessage(id = "a-system", role = ChatRole.SYSTEM, content = "系统提示"),
+                chatMessage(id = "a-ok", role = ChatRole.FRIEND, content = "你好")
+            ),
+            ocrMessages = listOf(
+                chatMessage(
+                    id = "o-dup",
+                    role = ChatRole.FRIEND,
+                    content = "你好",
+                    source = MessageSource.OCR
+                ),
+                chatMessage(
+                    id = "o-ok",
+                    role = ChatRole.FRIEND,
+                    content = "在吗",
+                    source = MessageSource.OCR
+                )
+            ),
+            targetApp = "wechat",
+            conversationType = ConversationType.SINGLE_CHAT,
+            onStats = { stats = it }
+        )
+
+        assertEquals(4, stats.accessibilityInputCount)
+        assertEquals(2, stats.ocrInputCount)
+        assertEquals(1, stats.cleanedAccessibilityCount)
+        assertEquals(1, stats.cleanedOcrCount)
+        assertEquals(2, stats.mergedCount)
+        assertEquals(1, stats.droppedEmptyCount)
+        assertEquals(1, stats.droppedNoiseCount)
+        assertEquals(1, stats.droppedSystemCount)
+        assertEquals(1, stats.droppedCrossSourceDuplicateCount)
     }
 }

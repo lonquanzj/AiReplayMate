@@ -7,15 +7,12 @@ internal fun OcrRecognizedLine.clean(
     screenWidth: Int,
     screenHeight: Int
 ): OcrCleanResult {
-    val content = text.trim()
-    if (content.length < MIN_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_SHORT)
-    if (content.length > MAX_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_LONG)
-    if (content.isLikelyChromeText()) return dropped(OcrFilterReason.CHROME_TEXT)
-    if (content.isTimeOrBadgeText()) return dropped(OcrFilterReason.TIME_OR_BADGE)
-    if (content.isLikelySystemNotice()) return dropped(OcrFilterReason.SYSTEM_NOTICE)
-    if (content.isLikelyImageOrNonChatSnippet()) {
-        return dropped(OcrFilterReason.IMAGE_OR_NON_CHAT_SNIPPET)
-    }
+    val rawContent = normalizeText(text)
+    if (rawContent.length < MIN_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_SHORT)
+    if (rawContent.length > MAX_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_LONG)
+    if (rawContent.isLikelyChromeText()) return dropped(OcrFilterReason.CHROME_TEXT)
+    if (rawContent.isTimeOrBadgeText()) return dropped(OcrFilterReason.TIME_OR_BADGE)
+    if (rawContent.isLikelySystemNotice()) return dropped(OcrFilterReason.SYSTEM_NOTICE)
 
     val safeBounds = bounds ?: return dropped(OcrFilterReason.MISSING_BOUNDS)
     if (safeBounds.width() <= 0 || safeBounds.height() <= 0) return dropped(OcrFilterReason.INVALID_BOUNDS)
@@ -24,6 +21,20 @@ internal fun OcrRecognizedLine.clean(
     if (safeBounds.width() > screenWidth * MAX_LINE_WIDTH_RATIO) return dropped(OcrFilterReason.TOO_WIDE)
 
     val role = inferRole(safeBounds, screenWidth)
+    if (rawContent.isLikelyImageOrNonChatSnippet()) {
+        return OcrCleanResult(
+            candidate = OcrLineCandidate(
+                text = IMAGE_PLACEHOLDER_TEXT,
+                role = role,
+                bounds = safeBounds
+            )
+        )
+    }
+
+    val content = rawContent.stripInlineTimeMarkers()
+    if (content.length < MIN_TEXT_LENGTH) return dropped(OcrFilterReason.TOO_SHORT)
+    if (content.isLikelyTimeResidual(rawContent)) return dropped(OcrFilterReason.TIME_OR_BADGE)
+
     return OcrCleanResult(
         candidate = OcrLineCandidate(
             text = content,
@@ -83,6 +94,17 @@ private fun String.isShortSymbolDigitNoise(): Boolean {
     val hasDigit = normalized.any { it.isDigit() }
     val hasSymbol = normalized.any { !it.isLetterOrDigit() && !it.isWhitespace() }
     return hasDigit && hasSymbol
+}
+
+private fun String.stripInlineTimeMarkers(): String {
+    return normalizeText(
+        embeddedTimeRegex.replace(this, " ")
+    ).trim('\u3000', ' ', '-', ':', '：')
+}
+
+private fun String.isLikelyTimeResidual(rawContent: String): Boolean {
+    if (!embeddedTimeRegex.containsMatchIn(rawContent)) return false
+    return timeResidualRegex.matches(this)
 }
 
 internal fun normalizeText(text: String): String {

@@ -2,14 +2,52 @@ package com.lonquanzj.aireplaymate.context
 
 import com.lonquanzj.aireplaymate.accessibility.ChatMessage
 import com.lonquanzj.aireplaymate.accessibility.ChatRole
-import com.lonquanzj.aireplaymate.accessibility.MessageSource
+
+data class ContextBuildStats(
+    val accessibilityInputCount: Int = 0,
+    val ocrInputCount: Int = 0,
+    val cleanedAccessibilityCount: Int = 0,
+    val cleanedOcrCount: Int = 0,
+    val mergedCount: Int = 0,
+    val droppedEmptyCount: Int = 0,
+    val droppedNoiseCount: Int = 0,
+    val droppedSystemCount: Int = 0,
+    val droppedCrossSourceDuplicateCount: Int = 0
+)
+
+private data class MutableContextBuildStats(
+    var accessibilityInputCount: Int = 0,
+    var ocrInputCount: Int = 0,
+    var cleanedAccessibilityCount: Int = 0,
+    var cleanedOcrCount: Int = 0,
+    var mergedCount: Int = 0,
+    var droppedEmptyCount: Int = 0,
+    var droppedNoiseCount: Int = 0,
+    var droppedSystemCount: Int = 0,
+    var droppedCrossSourceDuplicateCount: Int = 0
+) {
+    fun toImmutable(): ContextBuildStats {
+        return ContextBuildStats(
+            accessibilityInputCount = accessibilityInputCount,
+            ocrInputCount = ocrInputCount,
+            cleanedAccessibilityCount = cleanedAccessibilityCount,
+            cleanedOcrCount = cleanedOcrCount,
+            mergedCount = mergedCount,
+            droppedEmptyCount = droppedEmptyCount,
+            droppedNoiseCount = droppedNoiseCount,
+            droppedSystemCount = droppedSystemCount,
+            droppedCrossSourceDuplicateCount = droppedCrossSourceDuplicateCount
+        )
+    }
+}
 
 interface ContextBuilder {
     fun build(
         accessibilityMessages: List<ChatMessage>,
         ocrMessages: List<ChatMessage> = emptyList(),
         targetApp: String,
-        conversationType: ConversationType
+        conversationType: ConversationType,
+        onStats: (ContextBuildStats) -> Unit = {}
     ): ChatContext
 }
 
@@ -18,68 +56,74 @@ object DefaultContextBuilder : ContextBuilder {
         accessibilityMessages: List<ChatMessage>,
         ocrMessages: List<ChatMessage>,
         targetApp: String,
-        conversationType: ConversationType
+        conversationType: ConversationType,
+        onStats: (ContextBuildStats) -> Unit
     ): ChatContext {
-        val merged = (accessibilityMessages + ocrMessages)
-            .asSequence()
-            .mapNotNull(::cleanMessage)
-            .filter { it.role != ChatRole.SYSTEM }
-            .fold(linkedMapOf<String, ChatMessage>()) { acc, message ->
-                val key = normalizeContent(message.content)
-                val existing = acc[key]
-                acc[key] = when {
-                    existing == null -> message
-                    shouldReplace(existing, message) -> message
-                    else -> existing
-                }
-                acc
-            }
-            .values
-            .toList()
-            .takeLast(MAX_CONTEXT_MESSAGES)
+        val stats = MutableContextBuildStats(
+            accessibilityInputCount = accessibilityMessages.size,
+            ocrInputCount = ocrMessages.size
+        )
 
-        return ChatContext(
+        val cleanedAccessibility = accessibilityMessages
+            .asSequence()
+            .mapNotNull { it.cleanMessage(stats) }
+            .toList()
+        stats.cleanedAccessibilityCount = cleanedAccessibility.size
+
+        val accessibilityContentKeys = cleanedAccessibility
+            .asSequence()
+            .map { normalizeContent(it.content) }
+            .toSet()
+
+        val cleanedOcr = ocrMessages
+            .asSequence()
+            .mapNotNull { it.cleanMessage(stats) }
+            .filterNot { message ->
+                val duplicated = normalizeContent(message.content) in accessibilityContentKeys
+                if (duplicated) {
+                    stats.droppedCrossSourceDuplicateCount += 1
+                }
+                duplicated
+            }
+            .toList()
+        stats.cleanedOcrCount = cleanedOcr.size
+
+        val merged = (cleanedAccessibility + cleanedOcr)
+            .takeLast(MAX_CONTEXT_MESSAGES)
+        stats.mergedCount = merged.size
+
+        val context = ChatContext(
             messages = merged,
             targetApp = targetApp,
             conversationType = conversationType,
             collectedAt = System.currentTimeMillis()
         )
+
+        onStats(stats.toImmutable())
+        return context
     }
 
-    private fun cleanMessage(message: ChatMessage): ChatMessage? {
-        val content = message.content.trim()
-        if (content.isEmpty()) return null
-        if (content.isLikelyNonConversationNoise()) return null
+    private fun ChatMessage.cleanMessage(stats: MutableContextBuildStats): ChatMessage? {
+        val content = content.trim()
+        if (content.isEmpty()) {
+            stats.droppedEmptyCount += 1
+            return null
+        }
+        if (content.isLikelyNonConversationNoise()) {
+            stats.droppedNoiseCount += 1
+            return null
+        }
+        if (role == ChatRole.SYSTEM) {
+            stats.droppedSystemCount += 1
+            return null
+        }
 
-        return message.copy(
-            role = normalizeRole(message.role),
+        return copy(
             content = content,
-            confidence = message.confidence.coerceIn(0f, 1f)
+            confidence = confidence.coerceIn(0f, 1f)
         )
     }
 
-    private fun normalizeRole(role: ChatRole): ChatRole {
-        return if (role == ChatRole.UNKNOWN) ChatRole.FRIEND else role
-    }
-
-    private fun shouldReplace(
-        existing: ChatMessage,
-        candidate: ChatMessage
-    ): Boolean {
-        if (existing.source == MessageSource.ACCESSIBILITY &&
-            candidate.source != MessageSource.ACCESSIBILITY
-        ) {
-            return false
-        }
-
-        if (existing.source != MessageSource.ACCESSIBILITY &&
-            candidate.source == MessageSource.ACCESSIBILITY
-        ) {
-            return true
-        }
-
-        return candidate.confidence > existing.confidence
-    }
 
     private fun normalizeContent(content: String): String {
         return whitespaceRegex.replace(content.trim(), " ")
@@ -97,7 +141,7 @@ object DefaultContextBuilder : ContextBuilder {
         """^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}$"""
     )
     private val dateRegex = Regex(
-        """^((\d{4}年)?\d{1,2}月\d{1,2}日|周[一二三四五六日天]|星期[一二三四五六日天]|昨天|今天|前天)(\s*((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2})?.*$"""
+        """^((\d{4}年)?\d{1,2}月\d{1,2}日|周[一二三四五六日天]|星期[一二三四五六日天]|昨天|今天|前天)(\s*((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2})?$"""
     )
     private val badgeRegex = Regex("""^\d{1,3}$""")
     private val whitespaceRegex = Regex("\\s+")

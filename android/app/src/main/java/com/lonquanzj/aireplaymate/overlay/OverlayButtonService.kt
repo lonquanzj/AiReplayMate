@@ -214,7 +214,8 @@ class OverlayButtonService : Service() {
                     accessibilityMessageCount = snapshot.accessibilityMessageCount,
                     ocrMessageCount = snapshot.ocrMessageCount,
                     mergedMessageCount = snapshot.mergedMessageCount,
-                    usedOcr = snapshot.usedOcr
+                    usedOcr = snapshot.usedOcr,
+                    contextBuildStats = snapshot.contextBuildStats
                 )
             },
             onBeforeOcrCapture = {

@@ -80,8 +80,8 @@ object DefaultPromptBuilder : PromptBuilder {
     ): String {
         val visibleMessages = context.messages.takeLast(MAX_PROMPT_MESSAGES)
         val latestFriendMessage = when (contextSendPolicy) {
-            ContextSendPolicy.FULL_CONTEXT -> visibleMessages.lastOrNull { it.role == ChatRole.FRIEND }
-            ContextSendPolicy.LATEST_FRIEND_MESSAGE -> context.messages.lastOrNull { it.role == ChatRole.FRIEND }
+            ContextSendPolicy.FULL_CONTEXT -> visibleMessages.lastOrNull { it.isCounterpartMessage }
+            ContextSendPolicy.LATEST_FRIEND_MESSAGE -> context.messages.lastOrNull { it.isCounterpartMessage }
         }
         val includesOcrContext = when (contextSendPolicy) {
             ContextSendPolicy.FULL_CONTEXT -> visibleMessages.any { it.isFromOcr }
@@ -178,6 +178,9 @@ object DefaultPromptBuilder : PromptBuilder {
 
     private val ChatMessage.isFromOcr: Boolean
         get() = source == MessageSource.OCR || source == MessageSource.MERGED
+
+    private val ChatMessage.isCounterpartMessage: Boolean
+        get() = role == ChatRole.FRIEND || role == ChatRole.UNKNOWN
 
     private const val MAX_PROMPT_MESSAGES = 20
     private val controlCharsRegex = Regex("[\\p{Cntrl}&&[^\n\t]]+")
