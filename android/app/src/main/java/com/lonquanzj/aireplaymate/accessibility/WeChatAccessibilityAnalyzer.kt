@@ -27,14 +27,7 @@ object WeChatAccessibilityAnalyzer {
             return WindowSignalSnapshot(
                 editableNodeCount = 0,
                 visibleTextSample = emptyList(),
-                inspection = WeChatInspectionResult(
-                    looksLikeChatPage = false,
-                    reason = "当前不是微信包名",
-                    conversationTitle = null,
-                    inputNodeFound = false,
-                    inputNodeHint = null,
-                    extractedMessages = emptyList()
-                )
+                inspection = emptyInspectionResult("\u5f53\u524d\u4e0d\u662f\u5fae\u4fe1\u5305\u540d")
             )
         }
 
@@ -42,119 +35,47 @@ object WeChatAccessibilityAnalyzer {
             return WindowSignalSnapshot(
                 editableNodeCount = 0,
                 visibleTextSample = emptyList(),
-                inspection = WeChatInspectionResult(
-                    looksLikeChatPage = false,
-                    reason = "当前窗口根节点为空",
-                    conversationTitle = null,
-                    inputNodeFound = false,
-                    inputNodeHint = null,
-                    extractedMessages = emptyList()
-                )
+                inspection = emptyInspectionResult("\u5f53\u524d\u7a97\u53e3\u6839\u8282\u70b9\u4e3a\u7a7a")
             )
         }
 
         val signals = WindowNodeSignals()
         collectWindowSignals(root, signals)
-        val rootBounds = Rect().also(root::getBoundsInScreen)
-
-        val hasChatControl = signals.collectedTexts.any { node ->
-            node.text.contains("发送") ||
-                node.text.contains("按住说话") ||
-                node.text.contains("语音输入") ||
-                node.text.contains("更多功能") ||
-                node.text.equals("+", ignoreCase = true) ||
-                node.text.contains("send", ignoreCase = true) ||
-                node.text.contains("voice", ignoreCase = true) ||
-                node.text.contains("more", ignoreCase = true)
-        }
-
-        val inputNode = pickChatInputNode(signals.editableNodes)
-        val title = detectConversationTitle(signals.collectedTexts)
-        val messages = extractMessages(signals.collectedTexts, title, rootBounds, inputNode)
-        val looksLikeChatPage = hasChatControl || messages.size >= 2 || inputNode != null
-
-        val reason = buildString {
-            append(if (inputNode != null) "已找到输入框" else "未找到输入框")
-            append("，")
-            append(if (hasChatControl) "命中聊天控件" else "未命中聊天控件")
-            append("，")
-            append("提取到 ${messages.size} 条候选消息")
-        }
+        val inspection = inspectSignals(
+            collectedTexts = signals.collectedTexts,
+            editableNodes = signals.editableNodes,
+            root = root,
+            includeEnglishControls = true
+        )
 
         return WindowSignalSnapshot(
             editableNodeCount = signals.editableNodeCount,
             visibleTextSample = signals.visibleTexts.take(VISIBLE_TEXT_SAMPLE_LIMIT),
-            inspection = WeChatInspectionResult(
-                looksLikeChatPage = looksLikeChatPage,
-                reason = reason,
-                conversationTitle = title,
-                inputNodeFound = inputNode != null,
-                inputNodeHint = inputNode?.hintText?.toString()?.trim()?.ifEmpty { null }
-                    ?: inputNode?.text?.toString()?.trim()?.ifEmpty { null },
-                extractedMessages = messages
-            )
+            inspection = inspection
         )
     }
+
     fun inspect(
         packageName: String,
         root: AccessibilityNodeInfo?
     ): WeChatInspectionResult {
         if (packageName != WECHAT_PACKAGE_NAME) {
-            return WeChatInspectionResult(
-                looksLikeChatPage = false,
-                reason = "当前不是微信包名",
-                conversationTitle = null,
-                inputNodeFound = false,
-                inputNodeHint = null,
-                extractedMessages = emptyList()
-            )
+            return emptyInspectionResult("\u5f53\u524d\u4e0d\u662f\u5fae\u4fe1\u5305\u540d")
         }
 
         if (root == null) {
-            return WeChatInspectionResult(
-                looksLikeChatPage = false,
-                reason = "当前窗口根节点为空",
-                conversationTitle = null,
-                inputNodeFound = false,
-                inputNodeHint = null,
-                extractedMessages = emptyList()
-            )
+            return emptyInspectionResult("\u5f53\u524d\u7a97\u53e3\u6839\u8282\u70b9\u4e3a\u7a7a")
         }
 
         val collectedTexts = mutableListOf<NodeText>()
         val editableNodes = mutableListOf<AccessibilityNodeInfo>()
         collectNodeSignals(root, collectedTexts, editableNodes)
-        val rootBounds = Rect().also(root::getBoundsInScreen)
 
-        val hasChatControl = collectedTexts.any { node ->
-            node.text.contains("发送") ||
-                node.text.contains("按住说话") ||
-                node.text.contains("语音输入") ||
-                node.text.contains("更多功能") ||
-                node.text == "+"
-        }
-
-        val inputNode = pickChatInputNode(editableNodes)
-        val title = detectConversationTitle(collectedTexts)
-        val messages = extractMessages(collectedTexts, title, rootBounds, inputNode)
-        val looksLikeChatPage = hasChatControl || messages.size >= 2 || inputNode != null
-
-        val reason = buildString {
-            append(if (inputNode != null) "已找到输入框" else "未找到输入框")
-            append("，")
-            append(if (hasChatControl) "命中聊天控件" else "未命中聊天控件")
-            append("，")
-            append("提取到 ${messages.size} 条候选消息")
-        }
-
-        return WeChatInspectionResult(
-            looksLikeChatPage = looksLikeChatPage,
-            reason = reason,
-            conversationTitle = title,
-            inputNodeFound = inputNode != null,
-            inputNodeHint = inputNode?.hintText?.toString()?.trim()?.ifEmpty { null }
-                ?: inputNode?.text?.toString()?.trim()?.ifEmpty { null },
-            extractedMessages = messages
+        return inspectSignals(
+            collectedTexts = collectedTexts,
+            editableNodes = editableNodes,
+            root = root,
+            includeEnglishControls = false
         )
     }
 
@@ -165,355 +86,72 @@ object WeChatAccessibilityAnalyzer {
         return pickChatInputNode(editableNodes)
     }
 
-    private fun collectNodeSignals(
-        node: AccessibilityNodeInfo,
-        collectedTexts: MutableList<NodeText>,
-        editableNodes: MutableList<AccessibilityNodeInfo>
-    ) {
-        val bounds = Rect().also(node::getBoundsInScreen)
-        val text = node.text?.toString()?.trim().orEmpty()
-        val description = node.contentDescription?.toString()?.trim().orEmpty()
-        val className = node.className?.toString().orEmpty()
-
-        if (node.isEditable || className.contains("EditText")) {
-            editableNodes += node
-        }
-
-        if (text.isNotEmpty()) {
-            collectedTexts += NodeText(
-                text = text,
-                source = NodeTextSource.TEXT,
-                className = className,
-                isEditable = node.isEditable,
-                isClickable = node.isClickable,
-                left = bounds.left,
-                top = bounds.top,
-                right = bounds.right,
-                bottom = bounds.bottom
-            )
-        }
-
-        if (description.isNotEmpty()) {
-            collectedTexts += NodeText(
-                text = description,
-                source = NodeTextSource.CONTENT_DESCRIPTION,
-                className = className,
-                isEditable = node.isEditable,
-                isClickable = node.isClickable,
-                left = bounds.left,
-                top = bounds.top,
-                right = bounds.right,
-                bottom = bounds.bottom
-            )
-        }
-
-        for (index in 0 until node.childCount) {
-            val child = node.getChild(index) ?: continue
-            collectNodeSignals(child, collectedTexts, editableNodes)
-        }
-    }
-
-    private fun detectConversationTitle(collectedTexts: List<NodeText>): String? {
-        return collectedTexts
-            .filter { it.top in 0..260 && !it.isLikelyControl }
-            .map { it.text }
-            .firstOrNull { text ->
-                text.length in 2..24 &&
-                    text !in blockedUiTexts &&
-                    !text.contains(":") &&
-                    !text.contains("微信")
-            }
-    }
-
-    private fun collectEditableNodes(
-        node: AccessibilityNodeInfo,
-        editableNodes: MutableList<AccessibilityNodeInfo>
-    ) {
-        val className = node.className?.toString().orEmpty()
-        if (node.isEditable || className.contains("EditText")) {
-            editableNodes += node
-        }
-
-        for (index in 0 until node.childCount) {
-            val child = node.getChild(index) ?: continue
-            collectEditableNodes(child, editableNodes)
-        }
-    }
-
-    private fun pickChatInputNode(editableNodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
-        return editableNodes
-            .maxByOrNull(::chatInputScore)
-            ?: editableNodes.firstOrNull()
-    }
-
-    private fun chatInputScore(node: AccessibilityNodeInfo): Int {
-        val hint = node.hintText?.toString()?.trim().orEmpty()
-        val text = node.text?.toString()?.trim().orEmpty()
-        val className = node.className?.toString().orEmpty()
-        val bounds = Rect().also(node::getBoundsInScreen)
-
-        var score = 0
-        if (className.contains("EditText")) score += 4
-        if (hint.contains("输入") || hint.contains("消息")) score += 10
-        if (text.contains("输入") || text.contains("消息")) score += 8
-        if (hint.contains("搜索") || text.contains("搜索")) score -= 6
-
-        // 微信聊天输入框通常更靠近底部。
-        score += (bounds.top / 200).coerceAtMost(10)
-        return score
-    }
-
-    private fun extractMessages(
+    private fun inspectSignals(
         collectedTexts: List<NodeText>,
-        title: String?,
-        rootBounds: Rect,
-        inputNode: AccessibilityNodeInfo?
-    ): List<ChatMessage> {
-        val inputBounds = inputNode?.let { Rect().also(it::getBoundsInScreen) }
-        val seen = linkedMapOf<String, NodeText>()
+        editableNodes: List<AccessibilityNodeInfo>,
+        root: AccessibilityNodeInfo,
+        includeEnglishControls: Boolean
+    ): WeChatInspectionResult {
+        val rootBounds = Rect().also(root::getBoundsInScreen)
+        val hasChatControl = hasChatControl(collectedTexts, includeEnglishControls)
+        val inputNode = pickChatInputNode(editableNodes)
+        val title = detectConversationTitle(collectedTexts)
+        val messages = extractMessages(collectedTexts, title, rootBounds, inputNode)
+        val looksLikeChatPage = hasChatControl || messages.size >= 2 || inputNode != null
 
-        collectedTexts
-            .sortedBy { it.top }
-            .forEach { item ->
-                val text = item.text.trim()
-                if (!item.isMessageCandidate(title, inputBounds, rootBounds)) return@forEach
-                val key = text.normalizedMessageKey()
-                val existing = seen[key]
-                if (existing == null || item.isBetterDuplicateThan(existing)) {
-                    seen[key] = item.copy(text = text)
-                }
-            }
-
-        return seen.values.toList()
-            .takeLast(MAX_EXTRACTED_MESSAGES)
-            .mapIndexed { index, item ->
-                val role = inferRole(item, rootBounds)
-                ChatMessage(
-                    id = stableMessageId(index, item.text),
-                    role = role,
-                    content = item.text,
-                    timestamp = null,
-                    source = MessageSource.ACCESSIBILITY,
-                    confidence = confidenceFor(item, role),
-                    boundsHint = item.boundsHint
-                )
-            }
+        return WeChatInspectionResult(
+            looksLikeChatPage = looksLikeChatPage,
+            reason = buildInspectionReason(inputNode != null, hasChatControl, messages.size),
+            conversationTitle = title,
+            inputNodeFound = inputNode != null,
+            inputNodeHint = inputNode?.hintText?.toString()?.trim()?.ifEmpty { null }
+                ?: inputNode?.text?.toString()?.trim()?.ifEmpty { null },
+            extractedMessages = messages
+        )
     }
 
-    private fun inferRole(
-        item: NodeText,
-        rootBounds: Rect
-    ): ChatRole {
-        val text = item.text
-        if (systemHintRegex.containsMatchIn(text)) return ChatRole.SYSTEM
-
-        val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return ChatRole.UNKNOWN
-        val centerX = item.centerX - rootBounds.left
-        val leftRatio = (item.left - rootBounds.left).toFloat() / rootWidth
-        val rightRatio = (item.right - rootBounds.left).toFloat() / rootWidth
-        val centerRatio = centerX.toFloat() / rootWidth
-
-        return when {
-            rightRatio > 0.66f && centerRatio > 0.48f -> ChatRole.ME
-            leftRatio < 0.40f && centerRatio < 0.58f -> ChatRole.FRIEND
-            centerRatio > 0.60f -> ChatRole.ME
-            centerRatio < 0.50f -> ChatRole.FRIEND
-            item.isCenteredSystemLike(rootBounds) -> ChatRole.UNKNOWN
-            else -> ChatRole.UNKNOWN
-        }
+    private fun emptyInspectionResult(reason: String): WeChatInspectionResult {
+        return WeChatInspectionResult(
+            looksLikeChatPage = false,
+            reason = reason,
+            conversationTitle = null,
+            inputNodeFound = false,
+            inputNodeHint = null,
+            extractedMessages = emptyList()
+        )
     }
 
-    private fun confidenceFor(
-        item: NodeText,
-        role: ChatRole
-    ): Float {
-        val base = when (role) {
-            ChatRole.ME,
-            ChatRole.FRIEND -> 0.76f
-            ChatRole.SYSTEM -> 0.84f
-            ChatRole.UNKNOWN -> 0.45f
-        }
-        val sourcePenalty = if (item.source == NodeTextSource.CONTENT_DESCRIPTION) 0.08f else 0f
-        val controlPenalty = if (item.isLikelyControl) 0.18f else 0f
-        return (base - sourcePenalty - controlPenalty).coerceIn(0f, 1f)
-    }
-
-    private fun stableMessageId(
-        index: Int,
-        content: String
-    ): String {
-        val hash = content.hashCode().toUInt().toString(16)
-        return "accessibility_${index}_$hash"
-    }
-
-    private data class NodeText(
-        val text: String,
-        val source: NodeTextSource,
-        val className: String,
-        val isEditable: Boolean,
-        val isClickable: Boolean,
-        val left: Int,
-        val top: Int,
-        val right: Int,
-        val bottom: Int
-    ) {
-        val centerX: Int = left + ((right - left) / 2)
-        val width: Int = right - left
-        val boundsHint: String = "$left,$top,$right,$bottom"
-        val isLikelyControl: Boolean =
-            isEditable ||
-                className.contains("Button", ignoreCase = true) ||
-                className.contains("ImageView", ignoreCase = true) ||
-                text in blockedUiTexts ||
-                blockedUiTextFragments.any { text.contains(it) }
-    }
-
-    private enum class NodeTextSource {
-        TEXT,
-        CONTENT_DESCRIPTION
-    }
-
-    private class WindowNodeSignals {
-        val collectedTexts = mutableListOf<NodeText>()
-        val editableNodes = mutableListOf<AccessibilityNodeInfo>()
-        val visibleTexts = linkedSetOf<String>()
-        var editableNodeCount = 0
-    }
-
-    private fun collectWindowSignals(
-        node: AccessibilityNodeInfo,
-        signals: WindowNodeSignals
-    ) {
-        val bounds = Rect().also(node::getBoundsInScreen)
-        val text = node.text?.toString()?.trim().orEmpty()
-        val description = node.contentDescription?.toString()?.trim().orEmpty()
-        val className = node.className?.toString().orEmpty()
-
-        if (node.isEditable || className.contains("EditText")) {
-            signals.editableNodes += node
-            signals.editableNodeCount += 1
-        }
-
-        if (text.isNotEmpty()) {
-            signals.visibleTexts += text
-            signals.collectedTexts += NodeText(
-                text = text,
-                source = NodeTextSource.TEXT,
-                className = className,
-                isEditable = node.isEditable,
-                isClickable = node.isClickable,
-                left = bounds.left,
-                top = bounds.top,
-                right = bounds.right,
-                bottom = bounds.bottom
-            )
-        }
-
-        if (description.isNotEmpty()) {
-            signals.visibleTexts += description
-            signals.collectedTexts += NodeText(
-                text = description,
-                source = NodeTextSource.CONTENT_DESCRIPTION,
-                className = className,
-                isEditable = node.isEditable,
-                isClickable = node.isClickable,
-                left = bounds.left,
-                top = bounds.top,
-                right = bounds.right,
-                bottom = bounds.bottom
-            )
-        }
-
-        for (index in 0 until node.childCount) {
-            val child = node.getChild(index) ?: continue
-            collectWindowSignals(child, signals)
-        }
-    }
-
-    private fun NodeText.isMessageCandidate(
-        title: String?,
-        inputBounds: Rect?,
-        rootBounds: Rect
+    private fun hasChatControl(
+        collectedTexts: List<NodeText>,
+        includeEnglishControls: Boolean
     ): Boolean {
-        val cleanText = text.trim()
-        if (cleanText.isEmpty()) return false
-        if (cleanText == title) return false
-        if (cleanText.length > MAX_MESSAGE_TEXT_LENGTH) return false
-        if (top < rootBounds.top + MIN_MESSAGE_TOP_OFFSET) return false
-        if (inputBounds != null && bottom >= inputBounds.top - INPUT_AREA_PADDING) return false
-        if (isLikelyControl) return false
-        if (timestampRegex.matches(cleanText)) return false
-        if (dateRegex.matches(cleanText)) return false
-        if (emojiOnlyRegex.matches(cleanText)) return false
-        if (badgeRegex.matches(cleanText)) return false
-        if (className.contains("TextView", ignoreCase = true).not() &&
-            source == NodeTextSource.CONTENT_DESCRIPTION &&
-            cleanText.length <= 2
-        ) {
-            return false
+        return collectedTexts.any { node ->
+            node.text.contains("\u53d1\u9001") ||
+                node.text.contains("\u6309\u4f4f\u8bf4\u8bdd") ||
+                node.text.contains("\u8bed\u97f3\u8f93\u5165") ||
+                node.text.contains("\u66f4\u591a\u529f\u80fd") ||
+                if (includeEnglishControls) {
+                    node.text.equals("+", ignoreCase = true) ||
+                        node.text.contains("send", ignoreCase = true) ||
+                        node.text.contains("voice", ignoreCase = true) ||
+                        node.text.contains("more", ignoreCase = true)
+                } else {
+                    node.text == "+"
+                }
         }
-        return true
     }
 
-    private fun NodeText.isBetterDuplicateThan(other: NodeText): Boolean {
-        if (source == NodeTextSource.TEXT && other.source == NodeTextSource.CONTENT_DESCRIPTION) return true
-        if (source == other.source && width > other.width) return true
-        return false
+    private fun buildInspectionReason(
+        inputNodeFound: Boolean,
+        hasChatControl: Boolean,
+        messageCount: Int
+    ): String {
+        return buildString {
+            append(if (inputNodeFound) "\u5df2\u627e\u5230\u8f93\u5165\u6846" else "\u672a\u627e\u5230\u8f93\u5165\u6846")
+            append("\uff0c")
+            append(if (hasChatControl) "\u547d\u4e2d\u804a\u5929\u63a7\u4ef6" else "\u672a\u547d\u4e2d\u804a\u5929\u63a7\u4ef6")
+            append("\uff0c")
+            append("\u63d0\u53d6\u5230 $messageCount \u6761\u5019\u9009\u6d88\u606f")
+        }
     }
-
-    private fun NodeText.isCenteredSystemLike(rootBounds: Rect): Boolean {
-        val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return false
-        val centerRatio = (centerX - rootBounds.left).toFloat() / rootWidth
-        val widthRatio = width.toFloat() / rootWidth
-        return centerRatio in 0.42f..0.58f && widthRatio < 0.72f && text.length <= 40
-    }
-
-    private fun String.normalizedMessageKey(): String {
-        return whitespaceRegex.replace(trim(), " ")
-    }
-
-    private val blockedUiTexts = setOf(
-        "发送",
-        "更多功能",
-        "按住说话",
-        "语音输入",
-        "切换到按住说话",
-        "切换到键盘",
-        "表情",
-        "拍摄",
-        "照片",
-        "位置",
-        "红包",
-        "转账",
-        "收藏",
-        "语音通话",
-        "视频通话",
-        "+",
-        "微信",
-        "返回"
-    )
-
-    private val blockedUiTextFragments = listOf(
-        "切换到",
-        "更多",
-        "聊天信息",
-        "添加到通讯录",
-        "消息免打扰"
-    )
-
-    private const val MAX_EXTRACTED_MESSAGES = 12
-    private const val VISIBLE_TEXT_SAMPLE_LIMIT = 6
-    private const val MAX_MESSAGE_TEXT_LENGTH = 180
-    private const val MIN_MESSAGE_TOP_OFFSET = 132
-    private const val INPUT_AREA_PADDING = 24
-    private val timestampRegex = Regex(
-        """^((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2}$"""
-    )
-    private val dateRegex = Regex(
-        """^((\d{4}年)?\d{1,2}月\d{1,2}日|周[一二三四五六日天]|星期[一二三四五六日天]|昨天|今天|前天)(\s*((凌晨|早上|上午|中午|下午|晚上)\s*)?\d{1,2}[:：]\d{2})?.*$"""
-    )
-    private val badgeRegex = Regex("^\\d{1,3}$")
-    private val emojiOnlyRegex = Regex("^[\\p{So}\\p{Cn}]+$")
-    private val systemHintRegex = Regex("撤回|以上是|以下是|系统")
-    private val whitespaceRegex = Regex("\\s+")
 }

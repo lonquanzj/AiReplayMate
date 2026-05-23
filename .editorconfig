@@ -1,0 +1,7 @@
+root = true
+
+[*.{kt,kts,java,xml,md,txt,properties,gradle,gitignore,gitattributes,ps1,json,yml,yaml,html,css,js}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true

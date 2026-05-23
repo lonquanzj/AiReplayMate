@@ -74,9 +74,11 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 最常用入口：
 
 - [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
-  首页配置、调试面板、诊断 UI
+  Activity 壳层、权限跳转、服务启停和 Compose 入口
+- [MainScreen.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/ui/MainScreen.kt:1)
+  首页 Tab、配置区、诊断区和导入导出入口
 - [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
-  悬浮气泡、进度面板、候选面板、风格菜单
+  悬浮服务生命周期、浮球创建和候选生成编排
 - [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
   真实会话执行器，负责把上下文整理、OCR、LLM、本地兜底串起来
 - [PromptBuilder.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/prompt/PromptBuilder.kt:1)
@@ -87,6 +89,24 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
   风格配置持久化
 - [LocalFallbackReplyGenerator.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/LocalFallbackReplyGenerator.kt:1)
   LLM 不可用时的本地候选兜底
+
+最近拆分速查：
+
+| 需求方向 | 优先看这些文件 |
+| --- | --- |
+| 首页布局、Tab、诊断入口 | `ui/MainScreen.kt`、`ui/MainSections.kt`、`ui/*Section.kt` |
+| 配置导入导出 | `ui/SettingsTransferActions.kt`、`settings/AppSettingsTransfer.kt` |
+| LLM 测试连接 | `llm/LlmConnectionTester.kt`、`llm/OpenAiCompatibleLlmGateway.kt`、`llm/LlmDebugStore.kt` |
+| 微信窗口识别和节点信号 | `accessibility/WeChatAccessibilityAnalyzer.kt`、`accessibility/WeChatNodeSignals.kt`、`accessibility/WindowInspectionReader.kt` |
+| Accessibility 消息提取 | `accessibility/WeChatMessageExtraction.kt`、`accessibility/WeChatInputNodePicker.kt` |
+| 草稿读取与 Autofill | `accessibility/InputDraftReader.kt`、`accessibility/AutofillExecutor.kt`、`accessibility/AccessibilityActionBridge.kt` |
+| 无障碍截图 | `accessibility/AccessibilityScreenshotCapturer.kt`、`ocr/AndroidScreenCaptureProvider.kt` |
+| OCR 后处理规则 | `ocr/OcrLineCleaning.kt`、`ocr/OcrPostProcessRules.kt`、`ocr/OcrTextPostProcessor.kt` |
+| OCR 聚合与诊断摘要 | `ocr/OcrBubbleGrouping.kt`、`ocr/OcrFilterSummaries.kt`、`ocr/OcrPostProcessModels.kt`、`ocr/OcrDebugStore.kt` |
+| Overlay 面板挂载与位置 | `overlay/OverlayPanelHost.kt`、`overlay/OverlayPanelLayoutCalculator.kt` |
+| Overlay 候选结果展示 | `overlay/OverlayCandidateSessionPresentation.kt`、`overlay/OverlayCandidatePanel.kt` |
+| Overlay 风格菜单 | `overlay/OverlayStyleMenuLauncher.kt`、`overlay/OverlayStyleMenuContent.kt`、`overlay/OverlayStyleMenuControls.kt`、`overlay/OverlayStyleMenuHeader.kt`、`overlay/OverlayStyleMenuPanel.kt` |
+| Overlay 失败与进度面板 | `overlay/OverlayFailurePanelPresenter.kt`、`overlay/OverlayFailurePanel.kt`、`overlay/OverlayProgressPanel.kt` |
 
 ## 5. 改需求时先判断属于哪类
 
@@ -247,6 +267,13 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 UI 相关需求大多集中在：
 
 - [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+- `overlay/OverlayPanelHost.kt`
+- `overlay/OverlayCandidateSessionPresentation.kt`
+- `overlay/OverlayStyleMenuLauncher.kt`
+- `overlay/OverlayStyleMenuContent.kt`
+- `overlay/OverlayStyleMenuControls.kt`
+- `overlay/OverlayStyleMenuHeader.kt`
+- `overlay/OverlayFailurePanelPresenter.kt`
 
 典型可改内容：
 
@@ -273,6 +300,11 @@ UI 相关需求大多集中在：
 
 - `ocr/MlKitChineseOcrEngine.kt`
 - `ocr/OcrTextPostProcessor.kt`
+- `ocr/OcrLineCleaning.kt`
+- `ocr/OcrPostProcessRules.kt`
+- `ocr/OcrBubbleGrouping.kt`
+- `ocr/OcrFilterSummaries.kt`
+- `ocr/OcrPostProcessModels.kt`
 - `ocr/OcrDebugStore.kt`
 - [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
 
@@ -288,6 +320,9 @@ UI 相关需求大多集中在：
 
 - `accessibility/AccessibilityActionBridge.kt`
 - `accessibility/ReplyAccessibilityService.kt`
+- `accessibility/AutofillExecutor.kt`
+- `accessibility/InputDraftReader.kt`
+- `accessibility/WeChatInputNodePicker.kt`
 - 相关调试状态和诊断导出
 
 常见需求：

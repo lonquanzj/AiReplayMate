@@ -10,17 +10,12 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
 import com.lonquanzj.aireplaymate.R
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
-import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
-import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
-import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,24 +42,20 @@ import kotlinx.coroutines.launch
 class OverlayButtonService : Service() {
     companion object {
         private const val CANDIDATE_PANEL_WIDTH_DP = 284
-        private const val STYLE_MENU_PANEL_WIDTH_DP = 280
-        private const val FAILURE_PANEL_WIDTH_DP = 300
-        private const val FAILURE_PANEL_HEIGHT_DP = 500
         private const val PROGRESS_PANEL_WIDTH_DP = 248
     }
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var floatingButtonView: FrameLayout? = null
-    private var candidatePanelView: View? = null
-    private var progressStatusView: TextView? = null
-    private var progressIndicatorView: LinearLayout? = null
     // 悬浮按钮当前的 WindowLayout 参数，面板锚点定位会依赖它。
     private var layoutParams: WindowManager.LayoutParams? = null
     // 生成中互斥锁：避免并发触发多次候选会话。
     private var isGeneratingCandidates = false
     private lateinit var floatingBubbleController: OverlayFloatingBubbleController
     private lateinit var panelAnimationController: OverlayPanelAnimationController
+    private lateinit var panelHost: OverlayPanelHost
+    private lateinit var styleMenuLauncher: OverlayStyleMenuLauncher
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -84,10 +75,26 @@ class OverlayButtonService : Service() {
             context = this,
             mainHandler = mainHandler,
             windowManagerProvider = { windowManager },
-            onLongPress = { showStyleMenuPanel() },
+            onLongPress = { styleMenuLauncher.show() },
             isGeneratingCandidates = { isGeneratingCandidates }
         )
         panelAnimationController = OverlayPanelAnimationController(this)
+        panelHost = OverlayPanelHost(
+            context = this,
+            windowManagerProvider = { windowManager },
+            buttonLayoutParamsProvider = { layoutParams },
+            stopProgressIndicatorAnimation = { stopProgressIndicatorAnimation() },
+            startProgressIndicatorAnimation = { startProgressIndicatorAnimation(it) },
+            animatePanelIn = { animatePanelIn(it, dp(8).toFloat()) }
+        )
+        styleMenuLauncher = OverlayStyleMenuLauncher(
+            context = this,
+            panelHost = panelHost,
+            isGeneratingCandidates = { isGeneratingCandidates },
+            onProfileChosen = { profile, draftText ->
+                triggerCandidateGeneration(profile, draftText)
+            }
+        )
         showFloatingButton()
         OverlayServiceStateStore.onRunning(bubbleVisible = overlayView != null)
     }
@@ -219,48 +226,19 @@ class OverlayButtonService : Service() {
         val settings = success.settings
         val sessionResult = success.sessionResult
 
-        if (sessionResult.usedLocalFallback) {
-            val reason = sessionResult.localFallbackReason ?: "未知错误"
-            val promptHint = if (
-                reason.contains("候选不足") ||
-                reason.contains("parse", ignoreCase = true) ||
-                reason.contains("JSON", ignoreCase = true)
-            ) {
-                "Prompt 协议可能不匹配，已使用本地兜底"
-            } else {
-                "LLM 不可用，已使用本地兜底：$reason"
-            }
-            Toast.makeText(
-                this,
-                promptHint,
-                Toast.LENGTH_SHORT
-            ).show()
-        } else {
-            Toast.makeText(this, "候选回复已生成", Toast.LENGTH_SHORT).show()
-        }
-        val candidates = sessionResult.candidates.toOverlayCandidates()
-        ReplyContextPreviewStore.update(
-            conversationTitle = debugState.conversationTitle,
-            messages = sessionResult.context.messages
-        )
-        OverlayDiagnosticsStore.onCandidates(
-            count = candidates.size,
-            usedLocalFallback = sessionResult.usedLocalFallback,
-            candidateSource = sessionResult.candidateSource
-        )
+        showCandidateGenerationToast(sessionResult)
         removeCandidatePanel()
-
-        val subtitle = sessionResult.toCandidatePanelSubtitle(settings, styleProfile)
-        val panel = buildCandidatePanelView(
+        val panel = buildGeneratedCandidatePanelView(
             context = this,
-            title = styleProfile.candidatePanelLabel,
-            subtitle = subtitle,
-            modeLabel = "",
-            candidates = candidates,
-            onRegenerate = {
+            debugState = debugState,
+            styleProfile = styleProfile,
+            settings = settings,
+            sessionResult = sessionResult,
+            draftText = draftText,
+            onRegenerate = { nextProfile, nextDraftText ->
                 OverlayDiagnosticsStore.onDone("用户重新生成候选")
                 removeCandidatePanel()
-                triggerCandidateGeneration(styleProfile, draftText)
+                triggerCandidateGeneration(nextProfile, nextDraftText)
             },
             onClose = {
                 OverlayDiagnosticsStore.onDone("用户关闭候选面板")
@@ -279,107 +257,24 @@ class OverlayButtonService : Service() {
             }
         )
 
-        candidatePanelView = panel
-        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
-            context = this,
-            contentView = panel,
-            buttonLayoutParams = layoutParams,
-            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
-                context = this,
-                desiredDp = CANDIDATE_PANEL_WIDTH_DP
-            )
+        panelHost.showPanel(
+            panel = panel,
+            desiredWidthDp = CANDIDATE_PANEL_WIDTH_DP,
+            animate = true
         )
-        windowManager?.addView(panel, params)
-        animatePanelIn(panel, dp(8).toFloat())
     }
 
     // ===== 面板渲染（样式/失败/进度） =====
-
-    private fun showStyleMenuPanel() {
-        if (isGeneratingCandidates) {
-            Toast.makeText(this, "正在生成候选回复，请稍等", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val current = ReplyStyleSettingsStore.load(this)
-        val catalog = ReplyStyleCatalogStore.load(this)
-        removeCandidatePanel()
-
-        var styleMenuScrollView: ScrollView? = null
-        val builtScrollView = buildStyleMenuPanelView(
-            context = this,
-            current = current,
-            catalog = catalog,
-            onClose = { removeCandidatePanel() },
-            onProfileChosen = { profile, persistAsDefault, requiresDraft ->
-                val draftText = if (requiresDraft) {
-                    val readResult = AccessibilityActionBridge.tryReadInputDraft()
-                    if (!readResult.success) {
-                        Toast.makeText(this, readResult.message, Toast.LENGTH_SHORT).show()
-                        return@buildStyleMenuPanelView
-                    }
-                    readResult.text
-                } else {
-                    null
-                }
-                if (persistAsDefault) {
-                    ReplyStyleSettingsStore.save(this, profile.asDefaultReply())
-                }
-                removeCandidatePanel()
-                triggerCandidateGeneration(profile, draftText)
-            },
-            onLayoutRefreshRequested = {
-                val attachedScrollView = styleMenuScrollView
-                if (attachedScrollView?.parent != null) {
-                    // Tab/分组切换后内容高度可能变化，需要刷新布局参数避免裁切。
-                    val nextParams = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
-                        context = this,
-                        contentView = attachedScrollView,
-                        buttonLayoutParams = layoutParams,
-                        panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
-                            context = this,
-                            desiredDp = STYLE_MENU_PANEL_WIDTH_DP
-                        ),
-                        maxPanelHeight = OverlayPanelLayoutCalculator.styleMenuMaxHeightPx(this)
-                    )
-                    windowManager?.updateViewLayout(attachedScrollView, nextParams)
-                }
-            }
-        )
-        styleMenuScrollView = builtScrollView
-        val scrollView = builtScrollView
-        candidatePanelView = scrollView
-        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
-            context = this,
-            contentView = scrollView,
-            buttonLayoutParams = layoutParams,
-            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
-                context = this,
-                desiredDp = STYLE_MENU_PANEL_WIDTH_DP
-            ),
-            maxPanelHeight = OverlayPanelLayoutCalculator.styleMenuMaxHeightPx(this)
-        )
-        windowManager?.addView(scrollView, params)
-        animatePanelIn(scrollView, dp(8).toFloat())
-
-    }
 
     private fun showFailurePanel(
         message: String,
         debugState: AccessibilityDebugState
     ) {
-        removeCandidatePanel()
-        val ocrDebugState = OcrDebugStore.state.value
-
-        val scrollView = buildFailurePanelView(
+        showOverlayFailurePanel(
             context = this,
             message = message,
+            panelHost = panelHost,
             debugState = debugState,
-            ocrDebugState = ocrDebugState,
-            onClose = {
-                OverlayDiagnosticsStore.onDone("用户关闭失败提示")
-                removeCandidatePanel()
-            },
             onOpenAccessibilitySettings = {
                 startActivity(
                     Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
@@ -388,58 +283,22 @@ class OverlayButtonService : Service() {
                 )
             }
         )
-        candidatePanelView = scrollView
-        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
-            context = this,
-            contentView = scrollView,
-            buttonLayoutParams = layoutParams,
-            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
-                context = this,
-                desiredDp = FAILURE_PANEL_WIDTH_DP
-            ),
-            panelHeight = dp(FAILURE_PANEL_HEIGHT_DP)
-        )
-        windowManager?.addView(scrollView, params)
     }
 
 
 
 
     private fun removeCandidatePanel() {
-        // 进度点动画绑定在面板上，移除面板前先停掉动画避免泄漏。
-        stopProgressIndicatorAnimation()
-        candidatePanelView?.let { view ->
-            windowManager?.removeView(view)
+        if (::panelHost.isInitialized) {
+            panelHost.removePanel()
         }
-        candidatePanelView = null
-        progressStatusView = null
-        progressIndicatorView = null
     }
 
     private fun showProgressPanel(status: String) {
-        progressStatusView?.let { statusView ->
-            // 如果进度面板已存在，只更新文案，避免反复 remove/add 造成闪烁。
-            statusView.text = status
-            return
-        }
-
-        removeCandidatePanel()
-        val progressViews = buildProgressPanelView(
-            context = this,
-            status = status
+        panelHost.showProgressPanel(
+            status = status,
+            desiredWidthDp = PROGRESS_PANEL_WIDTH_DP
         )
-
-        progressStatusView = progressViews.statusView
-        progressIndicatorView = progressViews.indicator
-        candidatePanelView = progressViews.panel
-        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
-            context = this,
-            contentView = progressViews.panel,
-            buttonLayoutParams = layoutParams,
-            panelWidth = dp(PROGRESS_PANEL_WIDTH_DP)
-        )
-        windowManager?.addView(progressViews.panel, params)
-        startProgressIndicatorAnimation(progressViews.indicator)
     }
 
     // ===== 动画与交互状态 =====

@@ -50,8 +50,20 @@
 - [android/app/build.gradle.kts](../android/app/build.gradle.kts:1)
 - [AndroidManifest.xml](../android/app/src/main/AndroidManifest.xml:1)
 - [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [MainScreen.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/ui/MainScreen.kt:1)
 - [ReplyAccessibilityService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
 - [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+
+最近拆分后的常用定位：
+
+- 首页 UI 分区：`android/app/src/main/java/com/lonquanzj/aireplaymate/ui/*Section.kt`
+- 首页配置导入导出：`android/app/src/main/java/com/lonquanzj/aireplaymate/ui/SettingsTransferActions.kt`
+- LLM 连接测试：`android/app/src/main/java/com/lonquanzj/aireplaymate/llm/LlmConnectionTester.kt`
+- 微信识别与消息提取：`android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/WeChatNodeSignals.kt`、`WeChatMessageExtraction.kt`
+- 草稿读取与填入：`android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/InputDraftReader.kt`、`AutofillExecutor.kt`
+- 无障碍截图：`android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/AccessibilityScreenshotCapturer.kt`
+- OCR 后处理：`android/app/src/main/java/com/lonquanzj/aireplaymate/ocr/OcrLineCleaning.kt`、`OcrBubbleGrouping.kt`、`OcrPostProcessRules.kt`
+- Overlay 面板宿主和菜单拆分：`android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayPanelHost.kt`、`OverlayStyleMenuLauncher.kt`、`OverlayStyleMenuContent.kt`、`OverlayStyleMenuControls.kt`、`OverlayStyleMenuHeader.kt`
 
 ## 4. 构建方式
 

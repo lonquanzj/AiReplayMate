@@ -70,7 +70,11 @@
 - 布局计算：`OverlayPanelLayoutCalculator`
 - 动画管理：`OverlayPanelAnimationController`
 - 悬浮按钮工厂：`OverlayFloatingButtonViewFactory`
+- 面板挂载与定位：`OverlayPanelHost`
+- 候选生成展示：`OverlayCandidateSessionPresentation`
+- 失败面板展示：`OverlayFailurePanelPresenter`
 - 面板构建：`OverlayCandidatePanel`、`OverlayStyleMenuPanel`、`OverlayFailurePanel`、`OverlayProgressPanel`
+- 风格菜单拆分：`OverlayStyleMenuLauncher`、`OverlayStyleMenuContent`、`OverlayStyleMenuControls`、`OverlayStyleMenuHeader`
 - 通用 UI：`OverlayUiDimens`、`OverlayUiEffects`、`OverlayUiStyles`、`OverlayPanelUiTokens`
 
 最近还补充了这批文件与 `OverlayButtonService` 的注释（文件职责、关键函数、调用链索引），当前更适合按职责跳读。
@@ -94,23 +98,8 @@
 
 ### OCR 兜底
 
-OCR 目前已经接入真实识别，不再只是留接口：
-
-- 已切换为无障碍服务截图，不再依赖 MediaProjection 授权
-- 已实现测试无障碍截图链路
-- 已接入 ML Kit 中文 OCR
-- 已实现 `OcrTextPostProcessor`，用于过滤控件文案、时间和非聊天文本
-- 已支持把 OCR 文本聚合为候选聊天消息
-- 已支持在诊断窗口展示 OCR Filter Summary 和 OCR Messages
-- Debug 构建会保存有限数量的 OCR 调试截图；Release / 非调试构建不保存调试图
-- 只有 LLM 请求实际包含 OCR 上下文时，Prompt 才会提示模型温和纠正常见 OCR 近形错
-- 悬浮链路中，当 Accessibility 上下文不足时会真实走 OCR 兜底
-
-### 品牌与界面状态
-
-最近已经补充并接入：
-
-- 应用展示名更新为 `AiChat`
+  - 输出会同时给出“最近一次稳定门禁状态”：`stable smoke + testDebugUnitTest`
+  - VS Code 任务入口：`device smoke: summarize failures`、`device smoke: summarize recent runs`
 - Android launcher 图标已替换为新的紫色风格版本
 - 悬浮气泡改成更轻量的圆形图标按钮
 - 候选面板和等待面板已从深色重阴影改为更浅的淡紫系样式
@@ -120,15 +109,17 @@ OCR 目前已经接入真实识别，不再只是留接口：
 虽然还是单模块 Android 工程，但代码已经按职责做了目录分层：
 
 - `accessibility/`
-  负责微信页面识别、消息提取、输入框查找与填入桥接
+  负责微信页面识别、消息提取、输入框查找、草稿读取、无障碍截图与填入桥接
 - `context/`
   负责把 Accessibility / OCR 原始消息整理成 `ChatContext`
 - `llm/`
-  负责 OpenAI 兼容请求、返回解析、LLM 调试状态
+  负责 OpenAI 兼容请求、返回解析、LLM 连接测试和调试状态
 - `ocr/`
   负责无障碍截图、OCR 识别、OCR 后处理和诊断
 - `overlay/`
   负责悬浮气泡、候选面板、进度面板和悬浮诊断
+- `ui/`
+  负责首页 Compose 分区、诊断面板和配置导入导出动作
 - `prompt/`
   负责请求模型、PromptBuilder、回复风格模型
 - `session/`
@@ -141,9 +132,31 @@ OCR 目前已经接入真实识别，不再只是留接口：
 当前的核心代码入口：
 
 - [MainActivity.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/MainActivity.kt:127)
+- [MainScreen.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/ui/MainScreen.kt:1)
 - [ReplyAccessibilityService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
 - [RealReplySessionRunner.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
 - [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)
+
+最近几次拆分后的快速定位：
+
+- 首页壳层与 Tab：`ui/MainScreen.kt`
+- 首页配置导入导出：`ui/SettingsTransferActions.kt`
+- LLM 连接测试：`llm/LlmConnectionTester.kt`
+- 无障碍事件日志：`accessibility/AccessibilityEventLogger.kt`
+- 无障碍截图：`accessibility/AccessibilityScreenshotCapturer.kt`
+- 当前窗口主动刷新：`accessibility/WindowInspectionReader.kt`
+- 微信节点信号采集：`accessibility/WeChatNodeSignals.kt`
+- 微信消息提取：`accessibility/WeChatMessageExtraction.kt`
+- 微信输入框选择：`accessibility/WeChatInputNodePicker.kt`
+- 输入框草稿读取：`accessibility/InputDraftReader.kt`
+- Autofill 执行：`accessibility/AutofillExecutor.kt`
+- OCR 行清洗与规则：`ocr/OcrLineCleaning.kt`、`ocr/OcrPostProcessRules.kt`
+- OCR 气泡聚合：`ocr/OcrBubbleGrouping.kt`
+- OCR 过滤摘要与结果模型：`ocr/OcrFilterSummaries.kt`、`ocr/OcrPostProcessModels.kt`
+- Overlay 面板宿主：`overlay/OverlayPanelHost.kt`
+- Overlay 候选生成展示：`overlay/OverlayCandidateSessionPresentation.kt`
+- Overlay 失败面板展示：`overlay/OverlayFailurePanelPresenter.kt`
+- Overlay 风格菜单入口与分区：`overlay/OverlayStyleMenuLauncher.kt`、`overlay/OverlayStyleMenuContent.kt`、`overlay/OverlayStyleMenuControls.kt`、`overlay/OverlayStyleMenuHeader.kt`
 
 ## 4. 已完成事项
 
@@ -164,12 +177,28 @@ OCR 目前已经接入真实识别，不再只是留接口：
 - 应用品牌资源和悬浮 UI 样式已做第一轮打磨
 - Overlay 大文件拆分完成第一轮，服务层职责已收敛为编排
 - Overlay 拆分文件与 Service 已补充阅读导向注释
+- Accessibility、OCR、首页 UI 与 LLM 测试也已继续拆分出职责文件，后续改动优先按上面的快速定位表跳转
 
 最近一次回归（2026-05-23）：
 
+- `OverlayButtonServiceBehaviorTest` 已完成对 overlay 拆分后的测试迁移：
+  - 不再反射已移除的 `OverlayButtonService` 私有字段/方法
+  - 改为注入并断言 `OverlayPanelHost` 状态与可观察行为
+- `:app:testDebugUnitTest` 全量单测通过（含上述迁移后的行为测试）
 - 真机稳定 smoke（7 条）通过
-- `:app:testDebugUnitTest` 通过
 - 两个 Diagnostic Only 的 Activity 探针在当前 MIUI 设备失败（系统后台拉起限制），仍不作为默认门禁
+- 建议默认门禁保持为：`testDebugUnitTest + device smoke: stable suite`；Activity 探针继续作为诊断通道
+- `run-device-smoke-test.ps1` 已为 `-SkipInstall` 增加 instrumentation 缺失自愈：检测到 `Unable to find instrumentation info` 时自动补装 app/test APK 并重试一次
+- Activity 探针复测后失败原因已稳定收敛到 `miui_launch_block`（不再出现缺失 instrumentation 元信息导致的误报）
+- Diagnostic summary 已新增结构化证据字段，便于自动化归档和快速排障：
+  - `miuiEvidenceCount` 与 `miuiEvidence.N`（关键 logcat 命中行）
+  - `activityStartSyncTimeoutDetected`（是否命中 `Instrumentation.startActivitySync` 超时）
+  - `instrumentationMissingInfoDetected`（是否命中 instrumentation 信息缺失）
+  - `diagnosticSuggestion`（本次失败的建议动作）
+- 已新增失败画像汇总脚本：`scripts/summarize-device-smoke.ps1`
+  - 示例：`powershell -ExecutionPolicy Bypass -File .\scripts\summarize-device-smoke.ps1 -MaxRuns 10 -OnlyFailures`
+  - 输出会同时给出“最近一次稳定门禁状态”：`stable smoke + testDebugUnitTest`
+  - VS Code 任务入口：`device smoke: summarize failures`、`device smoke: summarize recent runs`
 
 ## 5. 仍未完成的部分
 
@@ -236,6 +265,7 @@ OCR 目前已经接入真实识别，不再只是留接口：
 3. 把 Demo 链路和真实链路继续收敛，减少维护负担
 4. 为核心纯逻辑补最小测试，避免单人项目改动时反复踩旧坑
 5. 增加表情 / 图片消息占位识别：先把“对方发了表情 / 图片”进入上下文，不接 Vision
+6. 为 Activity 探针补“失败即诊断、非门禁”的自动化归档：固定输出 `summary + 关键 logcat`，缩短 MIUI 兼容排查路径
 
 ### Later
 

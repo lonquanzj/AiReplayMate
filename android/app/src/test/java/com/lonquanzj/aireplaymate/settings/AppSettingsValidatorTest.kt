@@ -72,4 +72,41 @@ class AppSettingsValidatorTest {
         assertTrue(validation.errors.any { it.contains("Base URL") && it.contains("http") && it.contains("https") })
         assertTrue(validation.errors.any { it.contains("1") && it.contains("5") })
     }
+
+    @Test
+    fun validate_accepts_https_boundary_values() {
+        val validation = AppSettingsValidator.validate(
+            AppSettings(
+                apiKey = "sk-test",
+                baseUrl = "https://api.example.test/v1",
+                model = "gpt-test",
+                temperature = 0f,
+                maxTokens = 120,
+                candidateCount = 1
+            )
+        )
+
+        assertTrue(validation.canRequest)
+        assertTrue(validation.errors.isEmpty())
+        assertTrue(validation.warnings.isEmpty())
+    }
+
+    @Test
+    fun validate_rejects_upper_temperature_and_max_token_boundary() {
+        val validation = AppSettingsValidator.validate(
+            AppSettings(
+                apiKey = "sk-test",
+                baseUrl = "https://api.example.test",
+                model = "gpt-test",
+                temperature = 2.01f,
+                maxTokens = 2001,
+                candidateCount = 5
+            )
+        )
+
+        assertFalse(validation.canRequest)
+        assertTrue(validation.errors.any { it.contains("Temperature") })
+        assertTrue(validation.errors.any { it.contains("Max tokens") })
+        assertFalse(validation.errors.any { it.contains("候选数量") })
+    }
 }

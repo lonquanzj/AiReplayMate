@@ -172,6 +172,42 @@ function Parse-InstrumentationTestResults {
     return $results
 }
 
+function Extract-MiuiLaunchEvidence {
+    param(
+        [string]$LogcatText,
+        [int]$MaxLines = 5
+    )
+
+    $evidence = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($LogcatText)) {
+        return $evidence
+    }
+
+    $patterns = @(
+        'Abort background activity starts',
+        'result code=102',
+        'Permission Denied Activity KeyguardLocked',
+        'MIUILOG- Permission Denied Activity'
+    )
+
+    foreach ($line in ($LogcatText -split "`r?`n")) {
+        foreach ($pattern in $patterns) {
+            if ($line -match $pattern) {
+                $trimmed = $line.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmed) -and -not $evidence.Contains($trimmed)) {
+                    $evidence.Add($trimmed) | Out-Null
+                    if ($evidence.Count -ge $MaxLines) {
+                        return $evidence
+                    }
+                }
+                break
+            }
+        }
+    }
+
+    return $evidence
+}
+
 function Ensure-DeviceAwakeAndUnlocked {
     param(
         [Parameter(Mandatory = $true)]
@@ -263,6 +299,54 @@ function Resolve-AppDebugApkPath {
     return $splitCandidates[0].FullName
 }
 
+function Install-AppAndTestApk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$GradlewPath,
+        [Parameter(Mandatory = $true)]
+        [string]$AdbPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$AdbTargetArgs,
+        [Parameter(Mandatory = $true)]
+        [string]$InstallLogPath,
+        [Parameter(Mandatory = $true)]
+        [string]$TestPackageName
+    )
+
+    & $GradlewPath ':app:assembleDebug' ':app:assembleDebugAndroidTest' '--console=plain' 2>&1 | Tee-Object -FilePath $InstallLogPath -Append | Out-Host
+    $gradleExitCode = $LASTEXITCODE
+    if ($gradleExitCode -ne 0) {
+        throw "Gradle assemble tasks failed, exit code=$gradleExitCode"
+    }
+
+    $appApk = Resolve-AppDebugApkPath -RepoRoot $RepoRoot -AdbPath $AdbPath -AdbTargetArgs $AdbTargetArgs
+    $testApk = Join-Path $RepoRoot 'android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk'
+    if (-not (Test-Path $appApk)) {
+        throw "App APK not found at $appApk"
+    }
+    if (-not (Test-Path $testApk)) {
+        throw "Test APK not found at $testApk"
+    }
+
+    "Install app APK via adb: $appApk" | Add-Content $InstallLogPath
+    & $AdbPath @AdbTargetArgs install -r -d $appApk 2>&1 | Tee-Object -FilePath $InstallLogPath -Append | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to install $appApk"
+    }
+
+    Write-Host "  Uninstall stale test package if present"
+    "Uninstall stale test package if present: $TestPackageName" | Add-Content $InstallLogPath
+    & $AdbPath @AdbTargetArgs uninstall $TestPackageName 2>&1 | Tee-Object -FilePath $InstallLogPath -Append | Out-Host
+
+    "Install test APK via adb: $testApk" | Add-Content $InstallLogPath
+    & $AdbPath @AdbTargetArgs install -r -t -d $testApk 2>&1 | Tee-Object -FilePath $InstallLogPath -Append | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to install $testApk"
+    }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $repoRoot
 
@@ -301,6 +385,10 @@ $failed = $false
 $scriptError = ''
 $miuiLaunchBlockDetected = $false
 $miuiLaunchBlockSummary = ''
+$miuiEvidenceLines = @()
+$activityStartSyncTimeoutDetected = $false
+$instrumentationMissingInfoDetected = $false
+$diagnosticSuggestion = ''
 $installUserRestricted = $false
 $installUserRestrictedSummary = ''
 $installDeleteInternalError = $false
@@ -438,38 +526,14 @@ try {
         $installExit = 0
     }
     else {
-        & $gradlew ':app:assembleDebug' ':app:assembleDebugAndroidTest' '--console=plain' 2>&1 | Tee-Object -FilePath $installLog | Out-Host
-        $installExit = $LASTEXITCODE
-        if ($installExit -ne 0) {
-            throw "Gradle assemble tasks failed, exit code=$installExit"
-        }
-
-        $appApk = Resolve-AppDebugApkPath -RepoRoot $repoRoot -AdbPath $adb -AdbTargetArgs $adbTargetArgs
-        $testApk = Join-Path $repoRoot 'android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk'
-        if (-not (Test-Path $appApk)) {
-            throw "App APK not found at $appApk"
-        }
-        if (-not (Test-Path $testApk)) {
-            throw "Test APK not found at $testApk"
-        }
-
-        "Install app APK via adb: $appApk" | Add-Content $installLog
-        & $adb @adbTargetArgs install -r -d $appApk 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
-        $installExit = $LASTEXITCODE
-        if ($installExit -ne 0) {
-            throw "Unable to install $appApk"
-        }
-
-        Write-Host "  Uninstall stale test package if present"
-        "Uninstall stale test package if present: $TestPackage" | Add-Content $installLog
-        & $adb @adbTargetArgs uninstall $TestPackage 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
-
-        "Install test APK via adb: $testApk" | Add-Content $installLog
-        & $adb @adbTargetArgs install -r -t -d $testApk 2>&1 | Tee-Object -FilePath $installLog -Append | Out-Host
-        $installExit = $LASTEXITCODE
-        if ($installExit -ne 0) {
-            throw "Unable to install $testApk"
-        }
+        Install-AppAndTestApk `
+            -RepoRoot $repoRoot `
+            -GradlewPath $gradlew `
+            -AdbPath $adb `
+            -AdbTargetArgs $adbTargetArgs `
+            -InstallLogPath $installLog `
+            -TestPackageName $TestPackage
+        $installExit = 0
     }
 
     Write-Host "[5/5] Run instrumentation test selection"
@@ -554,6 +618,97 @@ try {
     if (Test-Path $instrumentLog) {
         Get-Content $instrumentLog | Out-Host
     }
+
+    $instrumentTextSnapshot = Read-TextFileWithRetry -Path $instrumentLog
+    $missingInstrumentationInfo = $instrumentTextSnapshot -match 'Unable to find instrumentation info for: ComponentInfo' -or $instrumentTextSnapshot -match 'INSTRUMENTATION_FAILED: .+AndroidJUnitRunner'
+    if ($SkipInstall -and $missingInstrumentationInfo) {
+        Write-Warning 'Detected missing instrumentation info in SkipInstall mode. Reinstalling APKs and retrying instrumentation once.'
+        "SkipInstall retry: reinstall app/test APK because instrumentation info is missing" | Add-Content $installLog
+
+        Install-AppAndTestApk `
+            -RepoRoot $repoRoot `
+            -GradlewPath $gradlew `
+            -AdbPath $adb `
+            -AdbTargetArgs $adbTargetArgs `
+            -InstallLogPath $installLog `
+            -TestPackageName $TestPackage
+
+        & $adb @adbTargetArgs shell am force-stop $AppPackage | Out-Null
+        & $adb @adbTargetArgs shell am force-stop $TestPackage | Out-Null
+        if (Test-Path $instrumentLog) { Remove-Item -Force $instrumentLog }
+        if (Test-Path $instrumentErrLog) { Remove-Item -Force $instrumentErrLog }
+        $instrumentArgs = @($adbTargetArgs + @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner))
+        $instrumentProcess = Start-Process -FilePath $adb `
+            -ArgumentList (ConvertTo-ProcessArgumentString -Args $instrumentArgs) `
+            -RedirectStandardOutput $instrumentLog `
+            -RedirectStandardError $instrumentErrLog `
+            -NoNewWindow `
+            -PassThru
+
+        $instrumentWaitTimedOut = $false
+        try {
+            Wait-Process -Id $instrumentProcess.Id -Timeout $InstrumentTimeoutSeconds -ErrorAction Stop
+        }
+        catch {
+            if ($_.Exception -is [System.TimeoutException]) {
+                $instrumentWaitTimedOut = $true
+            }
+            else {
+                throw
+            }
+        }
+
+        if ($instrumentWaitTimedOut) {
+            $instrumentTimedOut = $true
+            $pidofResult = & $adb @adbTargetArgs shell pidof $AppPackage 2>$null
+            $timedOutAppPid = if ($null -eq $pidofResult) { '' } else { ($pidofResult | Out-String).Trim() }
+            if (-not [string]::IsNullOrWhiteSpace($timedOutAppPid)) {
+                $hasNativeCommandPreference = $false
+                $oldNativeCommandPreference = $false
+                $nativeCommandPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+                if ($null -ne $nativeCommandPreference) {
+                    $hasNativeCommandPreference = $true
+                    $oldNativeCommandPreference = [bool]$nativeCommandPreference.Value
+                    $Global:PSNativeCommandUseErrorActionPreference = $false
+                }
+                try {
+                    & $adb @adbTargetArgs shell "kill -3 $timedOutAppPid" 1>$null 2>$null
+                }
+                catch {
+                }
+                finally {
+                    if ($hasNativeCommandPreference) {
+                        $Global:PSNativeCommandUseErrorActionPreference = $oldNativeCommandPreference
+                    }
+                }
+                Start-Sleep -Seconds 2
+            }
+            Stop-Process -Id $instrumentProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+
+        if (-not $instrumentTimedOut) {
+            $instrumentProcess.WaitForExit()
+            $instrumentProcess.Refresh()
+        }
+
+        $instrumentExit = if ($instrumentTimedOut) {
+            124
+        }
+        elseif ($null -eq $instrumentProcess.ExitCode) {
+            0
+        }
+        else {
+            $instrumentProcess.ExitCode
+        }
+
+        if (Test-Path $instrumentErrLog) {
+            Get-Content $instrumentErrLog | Add-Content $instrumentLog
+        }
+
+        if (Test-Path $instrumentLog) {
+            Get-Content $instrumentLog | Out-Host
+        }
+    }
 }
 catch {
     $scriptError = $_.Exception.Message
@@ -591,7 +746,12 @@ finally {
     if ($installDeleteInternalError) {
         $installDeleteInternalErrorSummary = 'Detected test package uninstall internal error (DELETE_FAILED_INTERNAL_ERROR). Usually stale package state; retry or manually uninstall the test package on device.'
     }
+    $activityStartSyncTimeoutDetected = $instrumentText -match 'Instrumentation\.startActivitySync' -and $instrumentText -match 'TestTimedOutException'
+    $instrumentationMissingInfoDetected = $instrumentText -match 'Unable to find instrumentation info for: ComponentInfo'
     $miuiLaunchBlockDetected = $logcatText -match 'Abort background activity starts|result code=102|Permission Denied Activity KeyguardLocked|MIUILOG- Permission Denied Activity'
+    if ($miuiLaunchBlockDetected) {
+        $miuiEvidenceLines = @(Extract-MiuiLaunchEvidence -LogcatText $logcatText -MaxLines 5)
+    }
     if ($miuiLaunchBlockDetected) {
         $miuiLaunchBlockSummary = 'Detected MIUI/OEM background-activity-start blocking in logcat. Activity-launching instrumentation tests may fail before MainActivity.onCreate. Prefer DeviceRegressionTest as the default baseline on this device.'
     }
@@ -611,6 +771,7 @@ finally {
     elseif ($miuiLaunchBlockDetected) {
         $failureCategory = 'miui_launch_block'
         $failureSummary = $miuiLaunchBlockSummary
+        $diagnosticSuggestion = 'Use stable gate (`device smoke: stable suite`) for merge decision; run Activity probes only for diagnostics after manually opening app/allowing foreground launch on device.'
     }
     elseif ($crashed) {
         $failureCategory = 'process_crashed'
@@ -663,6 +824,13 @@ finally {
     "installDeleteInternalErrorSummary=$installDeleteInternalErrorSummary" | Add-Content $summaryLog
     "miuiLaunchBlockDetected=$miuiLaunchBlockDetected" | Add-Content $summaryLog
     "miuiLaunchBlockSummary=$miuiLaunchBlockSummary" | Add-Content $summaryLog
+    "miuiEvidenceCount=$($miuiEvidenceLines.Count)" | Add-Content $summaryLog
+    for ($index = 0; $index -lt $miuiEvidenceLines.Count; $index++) {
+        "miuiEvidence.$($index + 1)=$($miuiEvidenceLines[$index])" | Add-Content $summaryLog
+    }
+    "activityStartSyncTimeoutDetected=$activityStartSyncTimeoutDetected" | Add-Content $summaryLog
+    "instrumentationMissingInfoDetected=$instrumentationMissingInfoDetected" | Add-Content $summaryLog
+    "diagnosticSuggestion=$diagnosticSuggestion" | Add-Content $summaryLog
     "failureCategory=$failureCategory" | Add-Content $summaryLog
     "failureSummary=$failureSummary" | Add-Content $summaryLog
     "scriptError=$scriptError" | Add-Content $summaryLog
@@ -687,6 +855,18 @@ if ($installDeleteInternalError) {
 
 if ($miuiLaunchBlockDetected) {
     Write-Warning $miuiLaunchBlockSummary
+    if ($miuiEvidenceLines.Count -gt 0) {
+        Write-Host 'MIUI evidence lines:'
+        foreach ($line in $miuiEvidenceLines) {
+            Write-Host "  - $line"
+        }
+    }
+    if ($activityStartSyncTimeoutDetected) {
+        Write-Host 'Diagnostic signal: Activity launch timeout detected at Instrumentation.startActivitySync.'
+    }
+    if ($instrumentationMissingInfoDetected) {
+        Write-Host 'Diagnostic signal: instrumentation info missing was detected in this run.'
+    }
 }
 
 if ($testResults.Count -gt 0) {

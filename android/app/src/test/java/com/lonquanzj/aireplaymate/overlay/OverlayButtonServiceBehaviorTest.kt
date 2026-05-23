@@ -4,10 +4,9 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,54 +19,62 @@ class OverlayButtonServiceBehaviorTest {
     @Test
     fun showProgressPanel_whenStatusViewExists_onlyUpdatesText() {
         val service = Robolectric.buildService(OverlayButtonService::class.java).get()
+        val panelHost = createPanelHost(service)
         val existingStatusView = TextView(service).apply { text = "old" }
         val existingPanel = View(service)
 
-        setPrivateField(service, "progressStatusView", existingStatusView)
-        setPrivateField(service, "candidatePanelView", existingPanel)
+        setPrivateField(service, "panelHost", panelHost)
+        setPrivateField(panelHost, "progressStatusView", existingStatusView)
+        setPrivateField(panelHost, "candidatePanelView", existingPanel)
 
-        invokePrivateNoArg(service, "showProgressPanel", "refreshing")
+        invokePrivateOneStringArg(service, "showProgressPanel", "refreshing")
 
         assertEquals("refreshing", existingStatusView.text.toString())
-        assertSame(existingStatusView, getPrivateField(service, "progressStatusView"))
-        assertSame(existingPanel, getPrivateField(service, "candidatePanelView"))
+        assertEquals(existingStatusView, getPrivateField(panelHost, "progressStatusView"))
+        assertEquals(existingPanel, getPrivateField(panelHost, "candidatePanelView"))
     }
 
     @Test
-    fun showStyleMenuPanel_whenGenerating_showsToastAndSkipsPanelCreation() {
+    fun triggerCandidateGeneration_whenAlreadyGenerating_showsToastAndSkipsWork() {
         val service = Robolectric.buildService(OverlayButtonService::class.java).get()
         setPrivateField(service, "isGeneratingCandidates", true)
+        val panelHost = createPanelHost(service)
+        val existingPanel = View(service)
+        setPrivateField(service, "panelHost", panelHost)
+        setPrivateField(panelHost, "candidatePanelView", existingPanel)
 
-        invokePrivateNoArg(service, "showStyleMenuPanel")
+        invokePrivateGeneration(service, ReplyStyleProfile(), null)
 
         val latestToastText = ShadowToast.getTextOfLatestToast()
         assertEquals("正在生成候选回复，请稍等", latestToastText)
-        assertNull(getPrivateField(service, "candidatePanelView"))
-    }
-
-    @Test
-    fun showStyleMenuPanel_whenIdle_createsCandidatePanelView() {
-        val service = Robolectric.buildService(OverlayButtonService::class.java).get()
-        setPrivateField(service, "isGeneratingCandidates", false)
-
-        invokePrivateNoArg(service, "showStyleMenuPanel")
-
-        assertNotNull(getPrivateField(service, "candidatePanelView"))
+        assertEquals(existingPanel, getPrivateField(panelHost, "candidatePanelView"))
     }
 
     @Test
     fun removeCandidatePanel_canBeCalledRepeatedlyAndKeepsStateCleared() {
         val service = Robolectric.buildService(OverlayButtonService::class.java).get()
-        setPrivateField(service, "candidatePanelView", View(service))
-        setPrivateField(service, "progressStatusView", TextView(service).apply { text = "loading" })
-        setPrivateField(service, "progressIndicatorView", LinearLayout(service))
+        val panelHost = createPanelHost(service)
+        setPrivateField(service, "panelHost", panelHost)
+        setPrivateField(panelHost, "candidatePanelView", View(service))
+        setPrivateField(panelHost, "progressStatusView", TextView(service).apply { text = "loading" })
+        setPrivateField(panelHost, "progressIndicatorView", LinearLayout(service))
 
         invokePrivateNoArg(service, "removeCandidatePanel")
         invokePrivateNoArg(service, "removeCandidatePanel")
 
-        assertNull(getPrivateField(service, "candidatePanelView"))
-        assertNull(getPrivateField(service, "progressStatusView"))
-        assertNull(getPrivateField(service, "progressIndicatorView"))
+        assertNull(getPrivateField(panelHost, "candidatePanelView"))
+        assertNull(getPrivateField(panelHost, "progressStatusView"))
+        assertNull(getPrivateField(panelHost, "progressIndicatorView"))
+    }
+
+    @Test
+    fun removeCandidatePanel_whenPanelHostUninitialized_doesNotThrow() {
+        val service = Robolectric.buildService(OverlayButtonService::class.java).get()
+
+        assertNoThrow("Expected removeCandidatePanel to be safe when panelHost is uninitialized") {
+            invokePrivateNoArg(service, "removeCandidatePanel")
+            invokePrivateNoArg(service, "removeCandidatePanel")
+        }
     }
 
     @Test
@@ -75,9 +82,6 @@ class OverlayButtonServiceBehaviorTest {
         val service = Robolectric.buildService(OverlayButtonService::class.java).get()
         setPrivateField(service, "overlayView", View(service))
         setPrivateField(service, "floatingButtonView", FrameLayout(service))
-        setPrivateField(service, "candidatePanelView", View(service))
-        setPrivateField(service, "progressStatusView", TextView(service).apply { text = "working" })
-        setPrivateField(service, "progressIndicatorView", LinearLayout(service))
 
         assertNoThrow("Expected onDestroy first call not to throw") {
             service.onDestroy()
@@ -88,9 +92,6 @@ class OverlayButtonServiceBehaviorTest {
 
         assertNull(getPrivateField(service, "overlayView"))
         assertNull(getPrivateField(service, "floatingButtonView"))
-        assertNull(getPrivateField(service, "candidatePanelView"))
-        assertNull(getPrivateField(service, "progressStatusView"))
-        assertNull(getPrivateField(service, "progressIndicatorView"))
         assertNull(getPrivateField(service, "windowManager"))
     }
 
@@ -100,22 +101,47 @@ class OverlayButtonServiceBehaviorTest {
         method.invoke(service)
     }
 
-    private fun invokePrivateNoArg(service: OverlayButtonService, methodName: String, arg: String) {
+    private fun invokePrivateOneStringArg(service: OverlayButtonService, methodName: String, arg: String) {
         val method = OverlayButtonService::class.java.getDeclaredMethod(methodName, String::class.java)
         method.isAccessible = true
         method.invoke(service, arg)
     }
 
-    private fun setPrivateField(service: OverlayButtonService, fieldName: String, value: Any?) {
-        val field = OverlayButtonService::class.java.getDeclaredField(fieldName)
-        field.isAccessible = true
-        field.set(service, value)
+    private fun invokePrivateGeneration(
+        service: OverlayButtonService,
+        profile: ReplyStyleProfile,
+        draftText: String?
+    ) {
+        val method = OverlayButtonService::class.java.getDeclaredMethod(
+            "triggerCandidateGeneration",
+            ReplyStyleProfile::class.java,
+            String::class.java
+        )
+        method.isAccessible = true
+        method.invoke(service, profile, draftText)
     }
 
-    private fun getPrivateField(service: OverlayButtonService, fieldName: String): Any? {
-        val field = OverlayButtonService::class.java.getDeclaredField(fieldName)
+    private fun createPanelHost(service: OverlayButtonService): OverlayPanelHost {
+        return OverlayPanelHost(
+            context = service,
+            windowManagerProvider = { null },
+            buttonLayoutParamsProvider = { null },
+            stopProgressIndicatorAnimation = {},
+            startProgressIndicatorAnimation = {},
+            animatePanelIn = {}
+        )
+    }
+
+    private fun setPrivateField(target: Any, fieldName: String, value: Any?) {
+        val field = target.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
-        return field.get(service)
+        field.set(target, value)
+    }
+
+    private fun getPrivateField(target: Any, fieldName: String): Any? {
+        val field = target.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(target)
     }
 
     private fun assertNoThrow(message: String, block: () -> Unit) {
