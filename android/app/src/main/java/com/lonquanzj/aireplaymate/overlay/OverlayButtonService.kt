@@ -42,15 +42,15 @@ import kotlinx.coroutines.launch
  * 3. triggerCandidateGeneration -> showCandidatePanel
  * 4. showCandidatePanel -> showStyleMenuPanel/showFailurePanel/showProgressPanel
  * 5. 面板收敛与状态清理 -> removeCandidatePanel
- * 6. 动画与按钮状态 -> updateFloatingButtonLoading/start*/stop*
+ * 6. 动画与按钮状态 -> updateFloatingButtonLoading/start/stop
  */
 class OverlayButtonService : Service() {
-    private companion object {
-        const val CANDIDATE_PANEL_WIDTH_DP = 284
-        const val STYLE_MENU_PANEL_WIDTH_DP = 280
-        const val FAILURE_PANEL_WIDTH_DP = 300
-        const val FAILURE_PANEL_HEIGHT_DP = 500
-        const val PROGRESS_PANEL_WIDTH_DP = 248
+    companion object {
+        private const val CANDIDATE_PANEL_WIDTH_DP = 284
+        private const val STYLE_MENU_PANEL_WIDTH_DP = 280
+        private const val FAILURE_PANEL_WIDTH_DP = 300
+        private const val FAILURE_PANEL_HEIGHT_DP = 500
+        private const val PROGRESS_PANEL_WIDTH_DP = 248
     }
 
     private var windowManager: WindowManager? = null
@@ -305,8 +305,8 @@ class OverlayButtonService : Service() {
         val catalog = ReplyStyleCatalogStore.load(this)
         removeCandidatePanel()
 
-        lateinit var scrollView: ScrollView
-        scrollView = buildStyleMenuPanelView(
+        var styleMenuScrollView: ScrollView? = null
+        val builtScrollView = buildStyleMenuPanelView(
             context = this,
             current = current,
             catalog = catalog,
@@ -329,11 +329,12 @@ class OverlayButtonService : Service() {
                 triggerCandidateGeneration(profile, draftText)
             },
             onLayoutRefreshRequested = {
-                if (scrollView.parent != null) {
+                val attachedScrollView = styleMenuScrollView
+                if (attachedScrollView?.parent != null) {
                     // Tab/分组切换后内容高度可能变化，需要刷新布局参数避免裁切。
                     val nextParams = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
                         context = this,
-                        contentView = scrollView,
+                        contentView = attachedScrollView,
                         buttonLayoutParams = layoutParams,
                         panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
                             context = this,
@@ -341,10 +342,12 @@ class OverlayButtonService : Service() {
                         ),
                         maxPanelHeight = OverlayPanelLayoutCalculator.styleMenuMaxHeightPx(this)
                     )
-                    windowManager?.updateViewLayout(scrollView, nextParams)
+                    windowManager?.updateViewLayout(attachedScrollView, nextParams)
                 }
             }
         )
+        styleMenuScrollView = builtScrollView
+        val scrollView = builtScrollView
         candidatePanelView = scrollView
         val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
             context = this,
