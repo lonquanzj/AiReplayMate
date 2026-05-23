@@ -8,14 +8,17 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,13 +28,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -42,7 +42,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +68,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -120,6 +121,148 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
+private val SoftPanelTop = Color(0xFEFFFCFF)
+private val SoftPanelBottom = Color(0xFEF8F4FF)
+private val SoftPurplePanelTop = Color(0xFFF3EEFF)
+private val SoftPurplePanelBottom = Color(0xFFE9E0FF)
+private val SoftOutline = Color(0x26A886FF)
+private val SoftOutlineStrong = Color(0x337A57E8)
+private val SoftPrimaryText = Color(0xFF3F2B78)
+private val SoftSecondaryText = Color(0xFF7A659C)
+private val SoftMutedText = Color(0xFF8B7AA3)
+private val SoftAccent = Color(0xFF5B3DC8)
+private val SoftAction = Color(0xFF7A57E8)
+private val SoftActionContainer = Color(0x247A57E8)
+
+private fun softPanelBrush() = Brush.linearGradient(listOf(SoftPanelTop, SoftPanelBottom))
+
+private fun softPurplePanelBrush() = Brush.linearGradient(listOf(SoftPurplePanelTop, SoftPurplePanelBottom))
+
+@Composable
+private fun SoftPanelCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 20.dp,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
+    brush: Brush = softPanelBrush(),
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(cornerRadius)
+    val baseModifier = modifier
+        .fillMaxWidth()
+        .clip(shape)
+        .background(brush)
+        .border(1.dp, SoftOutline, shape)
+    val cardModifier = if (onClick != null) {
+        baseModifier.clickable(onClick = onClick)
+    } else {
+        baseModifier
+    }
+
+    Column(
+        modifier = cardModifier.padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun SoftStatusPill(
+    text: String,
+    selected: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(999.dp)
+    Text(
+        text = text,
+        modifier = modifier
+            .clip(shape)
+            .background(if (selected) SoftActionContainer else Color.Transparent)
+            .border(1.dp, if (selected) SoftOutlineStrong else SoftOutline, shape)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        color = if (selected) SoftAccent else SoftSecondaryText,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun SoftPrimaryAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(13.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = SoftAction,
+            contentColor = Color.White,
+            disabledContainerColor = SoftActionContainer,
+            disabledContentColor = SoftMutedText
+        ),
+        modifier = modifier.defaultMinSize(minHeight = 32.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SoftOutlinedAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(13.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = SoftAccent,
+            disabledContentColor = SoftMutedText
+        ),
+        modifier = modifier.defaultMinSize(minHeight = 32.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = SoftPrimaryText,
+        fontWeight = FontWeight.SemiBold
+    )
+}
+
+@Composable
+private fun SectionBody(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = SoftSecondaryText
+    )
+}
+
 
 @Composable
 internal fun MainTabContent(
@@ -151,9 +294,9 @@ internal fun MainTabContent(
         modifier = Modifier
             .fillMaxSize()
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         DailyHomeHeader(
             permissionSnapshot = permissionSnapshot,
@@ -197,9 +340,9 @@ internal fun LlmTabContent(
         modifier = Modifier
             .fillMaxSize()
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         LlmSettingsSection(
             settings = appSettings,
@@ -246,8 +389,9 @@ internal fun StyleTabContent(
         modifier = Modifier
             .fillMaxSize()
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ReplyStyleSection(
             appSettings = appSettings,
@@ -279,9 +423,9 @@ internal fun AdvancedTabContent() {
         modifier = Modifier
             .fillMaxSize()
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         OcrFallbackSection(
             debugState = ocrDebugState,
@@ -326,17 +470,13 @@ internal fun AdvancedTabContent() {
 
 @Composable
 internal fun AboutEntry(onClick: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
+    SoftPanelCard(
+        cornerRadius = 18.dp,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -346,19 +486,20 @@ internal fun AboutEntry(onClick: () -> Unit) {
             ) {
                 Text(
                     text = "关于",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = SoftPrimaryText,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     text = "项目说明与使用边界",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SoftSecondaryText
                 )
             }
             Text(
                 text = "查看",
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
+                color = SoftAccent
             )
         }
     }
@@ -396,25 +537,21 @@ private fun DailyHomeHeader(
     val permissionReady = permissionSnapshot.accessibilityEnabled && permissionSnapshot.overlayEnabled
     val llmReady = llmValidation.canRequest
 
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth()
+    SoftPanelCard(
+        cornerRadius = 20.dp,
+        contentPadding = PaddingValues(16.dp),
+        brush = softPurplePanelBrush()
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
             Text(
                 text = "日常入口",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.titleMedium,
+                color = SoftPrimaryText,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = "先确认权限、气泡和模型配置，再去微信单聊里点气泡生成候选。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.bodySmall,
+                color = SoftSecondaryText
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -439,9 +576,8 @@ private fun DailyHomeHeader(
             Text(
                 text = "最近诊断：${latestLogTitle ?: "暂无"}",
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
+                color = SoftAccent
             )
-        }
     }
 }
 
@@ -451,10 +587,11 @@ private fun DailyStatusItem(
     value: String,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.62f))
+            .border(1.dp, SoftOutline, RoundedCornerShape(14.dp))
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
@@ -463,12 +600,12 @@ private fun DailyStatusItem(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary
+                color = SoftSecondaryText
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = SoftPrimaryText,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -485,11 +622,7 @@ private fun PermissionStatusSection(
     onStopOverlayService: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "权限状态",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("权限状态")
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             PermissionCard(
@@ -558,44 +691,23 @@ private fun PermissionCard(
     onSecondaryClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    SoftPanelCard(
         modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        cornerRadius = 18.dp,
+        contentPadding = PaddingValues(14.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                }
-            ) {
-                Text(
-                    text = if (enabled) "已开启" else "待处理",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    },
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
+            SoftStatusPill(text = if (enabled) "已开启" else "待处理", selected = enabled)
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
+                color = SoftPrimaryText,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.bodySmall,
+                color = SoftSecondaryText
             )
 
             statusRows.forEach { (label, value) ->
@@ -603,23 +715,12 @@ private fun PermissionCard(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = onClick,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text(buttonText)
-                }
+                SoftOutlinedAction(text = buttonText, onClick = onClick)
 
                 if (secondaryButtonText != null && onSecondaryClick != null) {
-                    OutlinedButton(
-                        onClick = onSecondaryClick,
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(secondaryButtonText)
-                    }
+                    SoftOutlinedAction(text = secondaryButtonText, onClick = onSecondaryClick)
                 }
             }
-        }
     }
 }
 
@@ -634,24 +735,16 @@ private fun LlmSettingsSection(
     onExportSettings: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "LLM 设置",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("LLM 设置")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
                 Text(
                     text = llmSettingsHint(settings, validation),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SoftSecondaryText
                 )
 
                 OutlinedTextField(
@@ -723,38 +816,31 @@ private fun LlmSettingsSection(
                     Text(
                         text = "提醒：$warning",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = SoftAccent
                     )
                 }
 
-                Button(
+                SoftPrimaryAction(
+                    text = if (isTesting) "测试中..." else "测试连接",
                     onClick = onTestConnection,
                     enabled = validation.canRequest && !isTesting,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isTesting) "测试中..." else "测试连接")
-                }
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
+                    SoftOutlinedAction(
+                        text = "导入配置",
                         onClick = onImportSettings,
-                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("导入配置")
-                    }
-                    OutlinedButton(
+                    )
+                    SoftOutlinedAction(
+                        text = "导出配置",
                         onClick = onExportSettings,
-                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("导出配置")
-                    }
+                    )
                 }
-            }
         }
     }
 }
@@ -777,12 +863,13 @@ private fun LlmParameterSlider(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
+                color = SoftPrimaryText,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = valueText,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = SoftAccent,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -805,6 +892,7 @@ private fun ContextSendPolicySelector(
         Text(
             text = "发送给 LLM 的上下文",
             style = MaterialTheme.typography.bodyMedium,
+            color = SoftPrimaryText,
             fontWeight = FontWeight.SemiBold
         )
         Row(
@@ -830,7 +918,7 @@ private fun ContextSendPolicySelector(
                 ContextSendPolicy.LATEST_FRIEND_MESSAGE -> "生成时只发送最近一条对方消息。"
             },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = SoftSecondaryText
         )
     }
 }
@@ -843,23 +931,9 @@ private fun ContextSendPolicyButton(
     modifier: Modifier = Modifier
 ) {
     if (selected) {
-        Button(
-            onClick = onClick,
-            modifier = modifier,
-            shape = RoundedCornerShape(18.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
-        ) {
-            Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        SoftPrimaryAction(text = text, onClick = onClick, modifier = modifier)
     } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = modifier,
-            shape = RoundedCornerShape(18.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
-        ) {
-            Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        SoftOutlinedAction(text = text, onClick = onClick, modifier = modifier)
     }
 }
 
@@ -940,32 +1014,27 @@ private fun ReplyStyleSection(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = "LLM 回复风格",
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
+                color = SoftPrimaryText,
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
                 Text(
                     text = "选择默认角色、话术和润色目标；每一类都可以编辑提示词，也可以新增自己的条目。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SoftSecondaryText
                 )
 
                 StatusRow(label = "默认回复", value = profile.asDefaultReply().displayLabel)
@@ -1074,13 +1143,12 @@ private fun ReplyStyleSection(
                 Text(
                     text = styleExample(profile),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SoftSecondaryText
                 )
 
                 TextButton(onClick = onResetBuiltinCatalog) {
                     Text("恢复内置项默认")
                 }
-            }
         }
     }
 }
@@ -1100,7 +1168,8 @@ private fun StyleCategoryHeader(
         Text(
             text = title,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
+            color = SoftPrimaryText,
             fontWeight = FontWeight.SemiBold
         )
         StyleSmallActionButton(
@@ -1119,17 +1188,7 @@ private fun StyleSmallActionButton(
     text: String,
     onClick: () -> Unit
 ) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1
-        )
-    }
+    SoftOutlinedAction(text = text, onClick = onClick)
 }
 
 private fun realPromptPreviewContext(messages: List<ChatMessage>): ChatContext {
@@ -1209,7 +1268,7 @@ private fun StyleItemEditorDialog(
                     Text(
                         text = "内置项可编辑，但不能删除。",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SoftSecondaryText
                     )
                 }
             }
@@ -1422,10 +1481,11 @@ private fun ChoiceButtonGrid(
     onAdd: (() -> Unit)? = null,
     onSelect: (String) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val columnCount = 4
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         val gridItems = items.map { StyleGridItem.Choice(it.first, it.second) } +
             if (isEditMode && onAdd != null) listOf(StyleGridItem.Add) else emptyList()
-        gridItems.chunked(4).forEach { rowItems ->
+        gridItems.chunked(columnCount).forEach { rowItems ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1445,7 +1505,7 @@ private fun ChoiceButtonGrid(
                         )
                     }
                 }
-                repeat(4 - rowItems.size) {
+                repeat(columnCount - rowItems.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
@@ -1463,11 +1523,11 @@ private fun PlaybookChoiceGroups(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         playbooks.groupBy { it.categoryLabel }.forEach { (category, groupItems) ->
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     text = category,
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = SoftSecondaryText,
                     fontWeight = FontWeight.SemiBold
                 )
                 ChoiceButtonGrid(
@@ -1494,23 +1554,39 @@ private fun StyleChoiceButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val shape = RoundedCornerShape(13.dp)
+    val buttonModifier = modifier.defaultMinSize(minHeight = 30.dp)
+    val labelContent: @Composable () -> Unit = {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
     if (selected) {
         Button(
             onClick = onClick,
-            modifier = modifier,
-            shape = RoundedCornerShape(14.dp),
-            contentPadding = styleButtonContentPadding()
+            modifier = buttonModifier,
+            shape = shape,
+            contentPadding = PaddingValues(horizontal = 5.dp, vertical = 4.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SoftAction,
+                contentColor = Color.White
+            )
         ) {
-            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            labelContent()
         }
     } else {
         OutlinedButton(
             onClick = onClick,
-            modifier = modifier,
-            shape = RoundedCornerShape(14.dp),
-            contentPadding = styleButtonContentPadding()
+            modifier = buttonModifier,
+            shape = shape,
+            contentPadding = PaddingValues(horizontal = 5.dp, vertical = 4.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = SoftAccent)
         ) {
-            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            labelContent()
         }
     }
 }
@@ -1522,20 +1598,22 @@ private fun StyleAddButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        contentPadding = styleButtonContentPadding(),
+        modifier = modifier.defaultMinSize(minHeight = 30.dp),
+        shape = RoundedCornerShape(13.dp),
+        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 4.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            containerColor = SoftAction,
+            contentColor = Color.White
         )
     ) {
-        Text("新增", maxLines = 1)
+        Text(
+            text = "新增",
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
-}
-
-private fun styleButtonContentPadding(): PaddingValues {
-    return PaddingValues(horizontal = 6.dp, vertical = 8.dp)
 }
 
 private fun styleExample(profile: ReplyStyleProfile): String {
@@ -1552,25 +1630,13 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "悬浮窗诊断",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("悬浮窗诊断")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "记录上一次点击微信 AI 气泡后的真实链路，方便定位候选面板不出现或填入失败的原因。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionBody("记录上一次点击微信 AI 气泡后的真实链路，方便定位候选面板不出现或填入失败的原因。")
 
                 StatusRow(label = "阶段", value = debugState.phase.label)
                 StatusRow(label = "状态", value = debugState.status)
@@ -1603,7 +1669,8 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = "复制悬浮窗诊断",
                     onClick = {
                         clipboardManager.setText(
                             AnnotatedString(buildOverlayDebugSnapshot(debugState))
@@ -1611,11 +1678,8 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
                         Toast.makeText(context, "已复制悬浮窗诊断", Toast.LENGTH_SHORT).show()
                     },
                     enabled = debugState.updatedAtMillis > 0L,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("复制悬浮窗诊断")
-                }
+                )
 
                 if (debugState.steps.isNotEmpty()) {
                     Text(
@@ -1627,11 +1691,10 @@ private fun OverlayDiagnosticsSection(debugState: OverlayDiagnosticsState) {
                         Text(
                             text = "- $step",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
-            }
         }
     }
 }
@@ -1642,30 +1705,19 @@ private fun DiagnosticLogSection(logState: DiagnosticLogState) {
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "诊断日志",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("诊断日志")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "保存最近的 LLM、OCR、悬浮窗摘要日志；不保存截图、不保存 API Key。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionBody("保存最近的 LLM、OCR、悬浮窗摘要日志；不保存截图、不保存 API Key。")
                 StatusRow(label = "记录数", value = logState.entries.size.toString())
                 StatusRow(label = "更新时间", value = formatTimestamp(logState.updatedAtMillis))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
+                    SoftOutlinedAction(
+                        text = "复制日志",
                         onClick = {
                             clipboardManager.setText(
                                 AnnotatedString(DiagnosticLogStore.buildSnapshot())
@@ -1673,23 +1725,18 @@ private fun DiagnosticLogSection(logState: DiagnosticLogState) {
                             Toast.makeText(context, "已复制诊断日志", Toast.LENGTH_SHORT).show()
                         },
                         enabled = logState.entries.isNotEmpty(),
-                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("复制日志")
-                    }
+                    )
 
-                    OutlinedButton(
+                    SoftOutlinedAction(
+                        text = "清空",
                         onClick = {
                             DiagnosticLogStore.clear()
                             Toast.makeText(context, "已清空诊断日志", Toast.LENGTH_SHORT).show()
                         },
                         enabled = logState.entries.isNotEmpty(),
-                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("清空")
-                    }
+                    )
                 }
 
                 if (logState.entries.isNotEmpty()) {
@@ -1703,27 +1750,26 @@ private fun DiagnosticLogSection(logState: DiagnosticLogState) {
                             Text(
                                 text = "${formatTimestamp(entry.timestampMillis)} ${entry.kind.label}/${entry.title}",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = SoftPrimaryText
                             )
                             Text(
                                 text = "摘要：${entry.summary}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = SoftSecondaryText
                             )
                             Text(
                                 text = "建议：${entry.hint}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = SoftSecondaryText
                             )
                             Text(
                                 text = "元数据：${entry.metadata}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = SoftSecondaryText
                             )
                         }
                     }
                 }
-            }
         }
     }
 }
@@ -1734,20 +1780,12 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "LLM 诊断",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("LLM 诊断")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
                 StatusRow(label = "阶段", value = debugState.phase.label)
                 StatusRow(label = "分类", value = debugState.failureCategory.label)
                 StatusRow(label = "接口", value = debugState.baseUrl.ifBlank { "暂无" })
@@ -1785,7 +1823,8 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = "复制 LLM 诊断",
                     onClick = {
                         clipboardManager.setText(
                             AnnotatedString(buildLlmDebugSnapshot(debugState))
@@ -1793,11 +1832,8 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                         Toast.makeText(context, "已复制 LLM 诊断", Toast.LENGTH_SHORT).show()
                     },
                     enabled = debugState.updatedAtMillis > 0L || debugState.history.isNotEmpty(),
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("复制 LLM 诊断")
-                }
+                )
 
                 if (debugState.history.isNotEmpty()) {
                     Text(
@@ -1809,11 +1845,10 @@ private fun LlmDiagnosticsSection(debugState: LlmDebugState) {
                         Text(
                             text = "${formatTimestamp(entry.timestampMillis)} ${entry.phase.label}/${entry.category.label}: ${entry.summary}；建议：${entry.recoveryHint}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
-            }
         }
     }
 }
@@ -1827,20 +1862,12 @@ private fun RealAccessibilitySection(
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "真实无障碍状态",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("真实无障碍状态")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
                 StatusRow(
                     label = "服务连接",
                     value = if (debugState.serviceConnected) "已连接" else "未连接"
@@ -1902,7 +1929,8 @@ private fun RealAccessibilitySection(
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = "复制调试样本",
                     onClick = {
                         clipboardManager.setText(
                             AnnotatedString(
@@ -1915,11 +1943,8 @@ private fun RealAccessibilitySection(
                         Toast.makeText(context, "已复制调试样本", Toast.LENGTH_SHORT).show()
                     },
                     enabled = debugState.updatedAtMillis > 0L,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("复制调试样本")
-                }
+                )
 
                 if (debugState.lastAutofillSteps.isNotEmpty()) {
                     Text(
@@ -1931,7 +1956,7 @@ private fun RealAccessibilitySection(
                         Text(
                             text = "- $step",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
@@ -1945,13 +1970,13 @@ private fun RealAccessibilitySection(
                     Text(
                         text = "格式：序号 角色 置信度 [left,top,right,bottom] 文本",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SoftSecondaryText
                     )
                     debugState.extractedMessageDebugPreviews.takeLast(8).forEach { message ->
                         Text(
                             text = "- $message",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = SoftPrimaryText
                         )
                     }
                 }
@@ -1966,17 +1991,16 @@ private fun RealAccessibilitySection(
                         Text(
                             text = "- $sample",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 } else {
                     Text(
                         text = "开启无障碍服务后，切到微信或其他 App，这里会开始显示真实事件和文本采样。",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SoftSecondaryText
                     )
                 }
-            }
         }
     }
 }
@@ -1994,25 +2018,13 @@ private fun OcrFallbackSection(
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "OCR 兜底",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("OCR 兜底")
 
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "OCR 兜底使用无障碍服务截图，不再请求投屏授权。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionBody("OCR 兜底使用无障碍服务截图，不再请求投屏授权。")
 
                 StatusRow(
                     label = "截图方式",
@@ -2077,27 +2089,24 @@ private fun OcrFallbackSection(
                     value = formatTimestamp(debugState.updatedAtMillis)
                 )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = if (isTestingScreenCapture) "取图中..." else "测试无障碍截图",
                     onClick = onTestScreenCapture,
                     enabled = !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isTestingScreenCapture) "取图中..." else "测试无障碍截图")
-                }
+                )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = if (isTestingOcrRecognition) "识别中..." else "测试 OCR 识别",
                     onClick = onTestOcrRecognition,
                     enabled = !isTestingScreenCapture &&
                         !isTestingOcrRecognition,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isTestingOcrRecognition) "识别中..." else "测试 OCR 识别")
-                }
+                )
 
-                OutlinedButton(
+                SoftOutlinedAction(
+                    text = "复制 OCR 诊断",
                     onClick = {
                         clipboardManager.setText(
                             AnnotatedString(
@@ -2111,11 +2120,8 @@ private fun OcrFallbackSection(
                     },
                     enabled = debugState.updatedAtMillis > 0L ||
                         screenCaptureState.updatedAtMillis > 0L,
-                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("复制 OCR 诊断")
-                }
+                )
 
                 if (debugState.steps.isNotEmpty()) {
                     Text(
@@ -2127,7 +2133,7 @@ private fun OcrFallbackSection(
                         Text(
                             text = "- $step",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
@@ -2142,7 +2148,7 @@ private fun OcrFallbackSection(
                         Text(
                             text = "- $summary",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
@@ -2157,7 +2163,7 @@ private fun OcrFallbackSection(
                         Text(
                             text = "- $step",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = SoftSecondaryText
                         )
                     }
                 }
@@ -2172,11 +2178,10 @@ private fun OcrFallbackSection(
                         Text(
                             text = "- $message",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = SoftPrimaryText
                         )
                     }
                 }
-            }
         }
     }
 }
@@ -2195,12 +2200,13 @@ private fun StatusRow(
             text = label,
             modifier = Modifier.width(96.dp),
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = SoftSecondaryText
         )
         Text(
             text = value,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            color = SoftPrimaryText
         )
     }
 }
@@ -2211,23 +2217,17 @@ private fun ConversationPreviewSection(
     messages: List<ChatMessage>
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "聊天预览",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
+        SectionTitle("聊天预览")
 
-        Card(
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+        SoftPanelCard(
+            cornerRadius = 18.dp,
+            contentPadding = PaddingValues(14.dp),
+            brush = softPurplePanelBrush()
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
                 Text(
                     text = conversationTitle ?: "当前聊天上下文",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = SoftPrimaryText,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -2236,22 +2236,21 @@ private fun ConversationPreviewSection(
                     } else {
                         "当前会把这段上下文送去生成 3 条候选回复。"
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SoftSecondaryText
                 )
 
                 if (messages.isEmpty()) {
                     Text(
                         text = "还没有提取到聊天消息。",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SoftSecondaryText
                     )
                 } else {
                     messages.forEach { message ->
                         MessageBubble(message = message)
                     }
                 }
-            }
         }
     }
 }
@@ -2260,26 +2259,28 @@ private fun ConversationPreviewSection(
 private fun MessageBubble(message: ChatMessage) {
     val isMine = message.role == ChatRole.ME
     val bubbleColor = when (message.role) {
-        ChatRole.ME -> MaterialTheme.colorScheme.secondaryContainer
-        ChatRole.FRIEND -> MaterialTheme.colorScheme.surface
-        ChatRole.SYSTEM -> MaterialTheme.colorScheme.primaryContainer
-        ChatRole.UNKNOWN -> MaterialTheme.colorScheme.surface
+        ChatRole.ME -> SoftActionContainer
+        ChatRole.FRIEND -> Color.White.copy(alpha = 0.72f)
+        ChatRole.SYSTEM -> Color.White.copy(alpha = 0.56f)
+        ChatRole.UNKNOWN -> Color.White.copy(alpha = 0.72f)
     }
-    val textColor = MaterialTheme.colorScheme.onSurface
+    val textColor = SoftPrimaryText
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = bubbleColor)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(bubbleColor)
+                .border(1.dp, SoftOutline, RoundedCornerShape(16.dp))
         ) {
             Text(
                 text = message.content,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                 color = textColor,
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }

@@ -269,9 +269,9 @@ private fun MainScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFF7F3FF),
-                        Color(0xFFF1ECFF),
-                        Color(0xFFFFFCFF)
+                        Color(0xFFFFFCFF),
+                        Color(0xFFF8F4FF),
+                        Color(0xFFF3EEFF)
                     )
                 )
             )
