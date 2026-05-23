@@ -322,15 +322,17 @@ class OverlayButtonService : Service() {
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = overlayPanelBackground()
+            setPadding(dp(12), dp(9), dp(12), dp(12))
+            background = candidatePanelBackground()
             elevation = 14f
         }
 
+        val subtitle = sessionResult.toCandidatePanelSubtitle(settings, styleProfile)
         panel.addView(
-            panelHeader(
+            candidatePanelHeader(
                 title = styleProfile.candidatePanelLabel,
-                actionLabel = "⟳ 重新生成",
+                modeLabel = "",
+                subtitle = subtitle,
                 onAction = {
                     OverlayDiagnosticsStore.onDone("用户重新生成候选")
                     removeCandidatePanel()
@@ -347,34 +349,19 @@ class OverlayButtonService : Service() {
             )
         )
 
-        panel.addView(
-            TextView(this).apply {
-                text = sessionResult.toCandidatePanelSubtitle(settings, styleProfile)
-                textSize = 12f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(4), 0, 0)
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        addCompactGrid(
+        addCandidateStack(
             parent = panel,
             items = candidates,
-            columns = 2,
             topMarginDp = 10
-        ) { candidate ->
-            candidateView(candidate)
-        }
+        )
 
         candidatePanelView = panel
         val params = anchoredPanelLayoutParams(
             contentView = panel,
-            panelWidth = panelWidthDp(320)
+            panelWidth = panelWidthDp(284)
         )
         windowManager?.addView(panel, params)
+        animatePanelIn(panel)
     }
 
     private fun showStyleMenuPanel() {
@@ -398,19 +385,18 @@ class OverlayButtonService : Service() {
 
             val content = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = overlayPanelBackground()
+                setPadding(dp(10), dp(7), dp(10), dp(8))
+                background = styleMenuPanelBackground()
                 elevation = 14f
             }
 
-            content.addView(
-                panelHeader("选择回复风格") {
-                    removeCandidatePanel()
-                }
-            )
+            val hintRow = styleMenuHintRow(selectedTab, current) { removeCandidatePanel() }
+            content.addView(hintRow)
 
             val tabRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(3), dp(3), dp(3), dp(3))
+                background = styleMenuSegmentBackground()
             }
             val body = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -421,7 +407,7 @@ class OverlayButtonService : Service() {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    topMargin = dp(10)
+                    topMargin = dp(2)
                 }
             )
             content.addView(
@@ -440,6 +426,7 @@ class OverlayButtonService : Service() {
 
             fun updateMenu() {
                 tabRow.removeAllViews()
+                updateStyleMenuHintRow(hintRow, selectedTab, current)
                 StyleMenuTab.entries.forEachIndexed { index, tab ->
                     tabRow.addView(
                         styleMenuTabButton(tab.label, tab == selectedTab) {
@@ -447,9 +434,7 @@ class OverlayButtonService : Service() {
                             updateMenu()
                         },
                         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index > 0) {
-                                marginStart = dp(6)
-                            }
+                            if (index > 0) marginStart = dp(2)
                         }
                     )
                 }
@@ -471,7 +456,7 @@ class OverlayButtonService : Service() {
                 if (scrollView.parent != null) {
                     val nextParams = anchoredPanelLayoutParams(
                         contentView = scrollView,
-                        panelWidth = panelWidthDp(328),
+                        panelWidth = panelWidthDp(280),
                         maxPanelHeight = styleMenuMaxHeight()
                     )
                     params = nextParams
@@ -482,10 +467,11 @@ class OverlayButtonService : Service() {
             updateMenu()
             params = anchoredPanelLayoutParams(
                 contentView = scrollView,
-                panelWidth = panelWidthDp(328),
+                panelWidth = panelWidthDp(280),
                 maxPanelHeight = styleMenuMaxHeight()
             )
             windowManager?.addView(scrollView, params)
+            animatePanelIn(scrollView)
         }
 
     }
@@ -592,18 +578,20 @@ class OverlayButtonService : Service() {
     ) {
         if (groups.isEmpty()) return
         val activeGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
-        addStyleMenuGroupStrip(
-            parent = parent,
-            groups = groups,
-            selectedGroupId = activeGroup.id,
-            onGroupSelected = onGroupSelected
-        )
+        if (groups.size > 1) {
+            addStyleMenuGroupStrip(
+                parent = parent,
+                groups = groups,
+                selectedGroupId = activeGroup.id,
+                onGroupSelected = onGroupSelected
+            )
+        }
         addCompactGrid(
             parent = parent,
             items = activeGroup.items,
             columns = 4,
-            topMarginDp = 8,
-            gapDp = 8,
+            topMarginDp = if (groups.size > 1) 8 else 10,
+            gapDp = 6,
             viewFactory = viewFactory
         )
     }
@@ -877,6 +865,202 @@ class OverlayButtonService : Service() {
         }
     }
 
+    private fun candidatePanelHeader(
+        title: String,
+        modeLabel: String,
+        subtitle: String,
+        onAction: () -> Unit,
+        onClose: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                LinearLayout(this@OverlayButtonService).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(
+                        LinearLayout(this@OverlayButtonService).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            addView(
+                                TextView(this@OverlayButtonService).apply {
+                                    text = title
+                                    textSize = 14f
+                                    typeface = Typeface.DEFAULT_BOLD
+                                    setTextColor(0xFF3F2B78.toInt())
+                                    maxLines = 1
+                                    ellipsize = TextUtils.TruncateAt.END
+                                },
+                                LinearLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT
+                                )
+                            )
+                            if (modeLabel.isNotBlank()) {
+                                addView(
+                                    TextView(this@OverlayButtonService).apply {
+                                        text = modeLabel
+                                        textSize = 11f
+                                        setTextColor(0xFF7A659C.toInt())
+                                        maxLines = 1
+                                        ellipsize = TextUtils.TruncateAt.END
+                                    },
+                                    LinearLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                        ViewGroup.LayoutParams.WRAP_CONTENT
+                                    ).apply {
+                                        marginStart = dp(4)
+                                    }
+                                )
+                            }
+                        }
+                    )
+                    addView(
+                        TextView(this@OverlayButtonService).apply {
+                            text = subtitle
+                            textSize = 11f
+                            setTextColor(0xFF7A659C.toInt())
+                            setPadding(0, dp(2), 0, 0)
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+                    )
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            addView(
+                TextView(this@OverlayButtonService).apply {
+                    text = "↻"
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF5B3DC8.toInt())
+                    minWidth = dp(32)
+                    minHeight = dp(28)
+                    background = candidatePanelIconButtonBackground()
+                    applyPressedFeedback(this)
+                    setOnClickListener { onAction() }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = dp(8)
+                }
+            )
+            addView(
+                TextView(this@OverlayButtonService).apply {
+                    text = "×"
+                    textSize = 16f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF5B3DC8.toInt())
+                    minWidth = dp(32)
+                    minHeight = dp(28)
+                    background = candidatePanelIconButtonBackground()
+                    applyPressedFeedback(this)
+                    setOnClickListener { onClose() }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = dp(5)
+                }
+            )
+        }
+    }
+
+    private fun styleMenuHintRow(
+        tab: StyleMenuTab,
+        current: ReplyStyleProfile,
+        onClose: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                LinearLayout(this@OverlayButtonService).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(
+                        TextView(this@OverlayButtonService).apply {
+                            tag = STYLE_MENU_TITLE_TAG
+                            text = styleMenuSelectedLabel(tab, current)
+                            textSize = 12f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(0xFF5B3DC8.toInt())
+                        }
+                    )
+                    addView(
+                        TextView(this@OverlayButtonService).apply {
+                            tag = STYLE_MENU_HINT_TAG
+                            text = styleMenuSelectionHint(tab, current)
+                            textSize = 10.5f
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                            setTextColor(0xFF8B7AA3.toInt())
+                        },
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = dp(1)
+                        }
+                    )
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            addView(
+                TextView(this@OverlayButtonService).apply {
+                    text = "×"
+                    textSize = 15f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF8B7AA3.toInt())
+                    setPadding(dp(6), 0, dp(6), 0)
+                    minWidth = dp(24)
+                    minHeight = dp(20)
+                    applyPressedFeedback(this)
+                    setOnClickListener { onClose() }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private fun updateStyleMenuHintRow(
+        row: LinearLayout,
+        tab: StyleMenuTab,
+        current: ReplyStyleProfile
+    ) {
+        val titleView = row.findViewWithTag<TextView>(STYLE_MENU_TITLE_TAG)
+        val hintView = row.findViewWithTag<TextView>(STYLE_MENU_HINT_TAG)
+        titleView?.text = styleMenuSelectedLabel(tab, current)
+        hintView?.text = styleMenuSelectionHint(tab, current)
+    }
+
+    private fun styleMenuSelectedLabel(
+        tab: StyleMenuTab,
+        current: ReplyStyleProfile
+    ): String {
+        return when (tab) {
+            StyleMenuTab.PERSONA -> current.personaConfig.label
+            StyleMenuTab.PLAYBOOK -> current.playbookConfig.label
+            StyleMenuTab.POLISH -> current.polishGoalConfig.label
+        }
+    }
+
+    private fun styleMenuSelectionHint(
+        tab: StyleMenuTab,
+        current: ReplyStyleProfile
+    ): String {
+        return when (tab) {
+            StyleMenuTab.PERSONA -> "角色·${current.personaConfig.label}"
+            StyleMenuTab.PLAYBOOK -> "话术·${current.playbookConfig.label}"
+            StyleMenuTab.POLISH -> "润色·${current.polishGoalConfig.label}"
+        }
+    }
+
     private fun menuSectionLabel(text: String): TextView {
         return TextView(this).apply {
             this.text = text
@@ -905,18 +1089,20 @@ class OverlayButtonService : Service() {
         return TextView(this).apply {
             text = label
             textSize = 12f
-            setTextColor(if (isSelected) Color.WHITE else 0xFF3F2B78.toInt())
+            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF3F2B78.toInt())
             typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            minHeight = dp(42)
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            minHeight = dp(30)
+            setPadding(dp(5), dp(4), dp(5), dp(4))
+            elevation = if (isSelected) dp(1).toFloat() else 0f
             background = if (isSelected) {
-                compactSelectedMenuButtonBackground()
+                styleMenuTabSelectedBackground()
             } else {
-                compactMenuButtonBackground()
+                styleMenuTabIdleBackground()
             }
+            applyPressedFeedback(this)
             setOnClickListener { onClick() }
         }
     }
@@ -928,19 +1114,20 @@ class OverlayButtonService : Service() {
     ): TextView {
         return TextView(this).apply {
             text = label
-            textSize = 12f
-            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF7A659C.toInt())
+            textSize = 10f
+            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF9488A0.toInt())
             typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            minHeight = dp(32)
-            setPadding(dp(10), dp(5), dp(10), dp(5))
+            minHeight = dp(22)
+            setPadding(dp(8), dp(2), dp(8), dp(3))
             background = if (isSelected) {
                 selectedStyleMenuGroupBackground()
             } else {
                 styleMenuGroupBackground()
             }
+            applyPressedFeedback(this)
             setOnClickListener { onClick() }
         }
     }
@@ -953,20 +1140,21 @@ class OverlayButtonService : Service() {
         isSelected: Boolean = false
     ): TextView {
         return TextView(this).apply {
-            text = label
-            textSize = 12f
-            setTextColor(if (isSelected) Color.WHITE else 0xFF3F2B78.toInt())
+            text = if (isSelected) "· $label" else label
+            textSize = 10.5f
+            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF3F2B78.toInt())
             typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            minHeight = dp(42)
-            setPadding(dp(6), dp(8), dp(6), dp(8))
+            minHeight = dp(33)
+            setPadding(dp(3), dp(5), dp(3), dp(5))
             background = if (isSelected) {
                 compactSelectedMenuButtonBackground()
             } else {
                 compactMenuButtonBackground()
             }
+            applyPressedFeedback(this)
             setOnClickListener {
                 val draftText = if (requiresDraft) {
                     val readResult = AccessibilityActionBridge.tryReadInputDraft()
@@ -994,7 +1182,8 @@ class OverlayButtonService : Service() {
             setTextColor(0xFF3F2B78.toInt())
             minLines = 2
             setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = softPurpleCardBackground()
+            background = candidateReplyBackground()
+            applyPressedFeedback(this)
             setOnClickListener {
                 val result = AccessibilityActionBridge.tryAutofill(candidate.text)
                 OverlayDiagnosticsStore.onAutofill(result.message)
@@ -1006,6 +1195,47 @@ class OverlayButtonService : Service() {
                     OverlayDiagnosticsStore.onFailed(result.message)
                 }
             }
+        }
+    }
+
+    private fun animatePanelIn(view: View) {
+        view.alpha = 0f
+        view.scaleX = 0.96f
+        view.scaleY = 0.96f
+        view.translationY = dp(8).toFloat()
+        view.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .translationY(0f)
+            .setDuration(190L)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+    }
+
+    private fun applyPressedFeedback(view: View) {
+        view.setOnTouchListener { target, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    target.animate()
+                        .scaleX(0.98f)
+                        .scaleY(0.98f)
+                        .alpha(0.86f)
+                        .setDuration(70L)
+                        .start()
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    target.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .alpha(1f)
+                        .setDuration(110L)
+                        .start()
+                }
+            }
+            false
         }
     }
 
@@ -1126,6 +1356,25 @@ class OverlayButtonService : Service() {
         }
     }
 
+    private fun addCandidateStack(
+        parent: LinearLayout,
+        items: List<OverlayCandidate>,
+        topMarginDp: Int
+    ) {
+        if (items.isEmpty()) return
+        items.forEachIndexed { index, candidate ->
+            parent.addView(
+                candidateView(candidate),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = if (index == 0) dp(topMarginDp) else dp(8)
+                }
+            )
+        }
+    }
+
     private fun anchoredPanelLayoutParams(
         contentView: View,
         panelWidth: Int,
@@ -1191,7 +1440,7 @@ class OverlayButtonService : Service() {
     }
 
     private fun styleMenuMaxHeight(): Int {
-        return (resources.displayMetrics.heightPixels * 0.45f).toInt()
+        return (resources.displayMetrics.heightPixels * 0.38f).toInt()
     }
 
     private fun updateFloatingButtonLoading(isLoading: Boolean) {
@@ -1413,25 +1662,89 @@ class OverlayButtonService : Service() {
         }
     }
 
-    private fun compactMenuButtonBackground(): GradientDrawable {
+    private fun candidatePanelBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFFF3EEFF.toInt(), 0xFFE9E0FF.toInt())
+            intArrayOf(0xFEFFFCFF.toInt(), 0xFEF5EEFF.toInt())
         ).apply {
             shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(20).toFloat()
+            setStroke(dp(1), 0x2AA886FF)
+        }
+    }
+
+    private fun candidatePanelIconButtonBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0x167A57E8)
+            cornerRadius = dp(14).toFloat()
+            setStroke(dp(1), 0x2A7A57E8)
+        }
+    }
+
+    private fun candidateReplyBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFFF3EEFF.toInt(), 0xFFEDE5FF.toInt())
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(14).toFloat()
+            setStroke(dp(1), 0x2AA07CFF)
+        }
+    }
+
+    private fun styleMenuPanelBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFEFFFCFF.toInt(), 0xFEF8F4FF.toInt())
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(20).toFloat()
+            setStroke(dp(1), 0x26A886FF)
+        }
+    }
+
+    private fun styleMenuSegmentBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0xFFEFEAF8.toInt())
             cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0x26A07CFF)
+            setStroke(dp(1), 0x12A886FF)
+        }
+    }
+
+    private fun styleMenuTabIdleBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.TRANSPARENT)
+            cornerRadius = dp(11).toFloat()
+        }
+    }
+
+    private fun styleMenuTabSelectedBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0x247A57E8)
+            cornerRadius = dp(10).toFloat()
+            setStroke(dp(1), 0x337A57E8)
+        }
+    }
+
+    private fun compactMenuButtonBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(0xF2FFFFFF.toInt())
+            cornerRadius = dp(11).toFloat()
+            setStroke(dp(1), 0x18A07CFF)
         }
     }
 
     private fun compactSelectedMenuButtonBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFF7A57E8.toInt(), 0xFF5B3DC8.toInt())
-        ).apply {
+        return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0x667A57E8)
+            setColor(0x1A7A57E8)
+            cornerRadius = dp(11).toFloat()
+            setStroke(dp(1), 0x807A57E8.toInt())
         }
     }
 
@@ -1439,17 +1752,17 @@ class OverlayButtonService : Service() {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(0x00FFFFFF)
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0x1A7A57E8)
+            cornerRadius = dp(9).toFloat()
+            setStroke(dp(1), 0x0D7A57E8)
         }
     }
 
     private fun selectedStyleMenuGroupBackground(): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            setColor(0x1A7A57E8)
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0x667A57E8)
+            setColor(0x147A57E8)
+            cornerRadius = dp(9).toFloat()
+            setStroke(dp(1), 0x337A57E8)
         }
     }
 
@@ -1567,10 +1880,13 @@ class OverlayButtonService : Service() {
         }
     }
 
-    private enum class StyleMenuTab(val label: String) {
-        PERSONA("角色"),
-        PLAYBOOK("话术"),
-        POLISH("润色")
+    private enum class StyleMenuTab(
+        val label: String,
+        val hint: String
+    ) {
+        PERSONA("角色", "选择全局角色"),
+        PLAYBOOK("话术", "生成对应场景话术"),
+        POLISH("润色", "润色聊天框草稿")
     }
 
     private enum class DockedSide {
@@ -1588,6 +1904,8 @@ class OverlayButtonService : Service() {
         const val DRAG_SLOP = 8
         const val LONG_PRESS_TIMEOUT_MS = 520L
         const val STYLE_MENU_ALL_GROUP_ID = "all"
+        const val STYLE_MENU_TITLE_TAG = "style_menu_title"
+        const val STYLE_MENU_HINT_TAG = "style_menu_hint"
         const val FLOATING_BUTTON_SIZE_DP = 56
         const val DOCKED_VISIBLE_WIDTH_DP = 44
         const val DOCK_ANIMATION_DURATION_MS = 220L
