@@ -170,7 +170,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 
 - Android Studio 新版本
 - JDK 17
-- 命令行构建时设置 `JAVA_HOME`，当前 Windows 环境可用 `C:\Program Files\Android\Android Studio\jbr`
+- 命令行构建时设置 `JAVA_HOME`（指向本机可用的 JDK 17，例如 Android Studio 自带 JBR）
 - 一台可调试的 Android 真机
 - 可用的 OpenAI 兼容接口，或至少接受本地兜底效果
 
@@ -181,7 +181,7 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 在仓库根目录执行：
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:JAVA_HOME='<your-jdk-17-home>'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\gradlew.bat :app:assembleDebug
 ```
@@ -202,6 +202,7 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 - `device smoke: single test`：弹出输入框后跑指定单用例
 - `device diagnostic: activity launch probe (diagnostic only)`：快速复现 `MainActivity` 启动探针与 MIUI 限制告警
 - `device diagnostic: ui entry probe (diagnostic only)`：快速复现 UI 入口探针并输出阶段化诊断日志
+- `device diagnostic: overlay long press probe (diagnostic only)`：验证悬浮气泡长按回调链路（不依赖 Activity 启动）
 
 默认执行七条稳定用例：
 
@@ -262,6 +263,23 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 - `testResult.N.name` / `testResult.N.status`
 - `passedTests` / `failedTests`
 - `miuiLaunchBlockDetected` / `miuiLaunchBlockSummary`
+- `installUserRestricted` / `installUserRestrictedSummary`
+- `installDeleteInternalError` / `installDeleteInternalErrorSummary`
+- `failureCategory` / `failureSummary`
+
+`failureCategory` 当前可见分类包括：
+
+- `passed`
+- `install_user_restricted`
+- `install_delete_internal_error`
+- `miui_launch_block`
+- `process_crashed`
+- `instrumentation_timeout`
+- `test_failed`
+- `script_error`
+- `unknown`
+
+另外，`summary.txt` 统一使用 UTF-8 编码，便于命令行工具和 CI 直接读取。
 
 说明：
 
@@ -276,24 +294,25 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 
 1. 先跑 UI entry 探针，确认页面入口阶段信息
 2. 再跑 activity launch 探针，确认是否命中系统策略拦截
+3. 需要复核悬浮长按链路时，跑 overlay long press 探针
 
 命令示例：
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-$env:Path="$env:JAVA_HOME\bin;C:\Users\lonqu\AppData\Local\Android\Sdk\platform-tools;$env:Path"
-.\scripts\run-device-smoke-test.ps1 -TestClass 'com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points' -SkipInstall -InstrumentTimeoutSeconds 90
+.\scripts\run-device-smoke-test.ps1 -DiagnosticPreset ui-entry-probe -SkipInstall -InstrumentTimeoutSeconds 90
 ```
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-$env:Path="$env:JAVA_HOME\bin;C:\Users\lonqu\AppData\Local\Android\Sdk\platform-tools;$env:Path"
-.\scripts\run-device-smoke-test.ps1 -TestClass 'com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario' -SkipInstall -InstrumentTimeoutSeconds 60
+.\scripts\run-device-smoke-test.ps1 -DiagnosticPreset activity-launch-probe -SkipInstall -InstrumentTimeoutSeconds 60
+```
+
+```powershell
+.\scripts\run-device-smoke-test.ps1 -DiagnosticPreset overlay-long-press-probe -InstrumentTimeoutSeconds 120
 ```
 
 说明：
 
-- 两条命令都是诊断入口，不作为 merge gate。
+- 三条命令都是诊断入口，不作为 merge gate。
 - 每次执行都会在 `android/app/build/reports/androidTests/device-smoke/<timestamp>/` 下产出 install、instrument、logcat 与 summary 文件。
 - 若需要完整重装链路验证，可去掉 `-SkipInstall`。
 

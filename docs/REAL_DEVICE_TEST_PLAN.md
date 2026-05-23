@@ -62,8 +62,10 @@
 
 - VS Code 任务：`device diagnostic: ui entry probe (diagnostic only)`
 - VS Code 任务：`device diagnostic: activity launch probe (diagnostic only)`
-- 脚本命令：`scripts/run-device-smoke-test.ps1 -TestClass com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points`
-- 脚本命令：`scripts/run-device-smoke-test.ps1 -TestClass com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario`
+- VS Code 任务：`device diagnostic: overlay long press probe (diagnostic only)`
+- 脚本命令：`scripts/run-device-smoke-test.ps1 -DiagnosticPreset ui-entry-probe`
+- 脚本命令：`scripts/run-device-smoke-test.ps1 -DiagnosticPreset activity-launch-probe`
+- 脚本命令：`scripts/run-device-smoke-test.ps1 -DiagnosticPreset overlay-long-press-probe`
 
 推荐执行顺序：
 
@@ -221,6 +223,7 @@
 
 1. Activity 启动失败时能快速确认是否是 MIUI / 系统限制
 2. 不再把这类诊断结果误判为主链路功能损坏
+3. `summary.txt` 中存在统一 `failureCategory`，至少覆盖：`install_user_restricted`、`miui_launch_block`、`process_crashed`、`instrumentation_timeout`、`test_failed`
 
 ### 阶段 8：文档与任务收敛
 

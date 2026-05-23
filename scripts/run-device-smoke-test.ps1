@@ -9,6 +9,8 @@ param(
         'com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_debug_store_tracks_attempt_result_and_message_previews'
     ),
     [string]$TestClass,
+    [ValidateSet('activity-launch-probe', 'ui-entry-probe', 'overlay-long-press-probe')]
+    [string]$DiagnosticPreset,
     [string]$AppPackage = 'com.lonquanzj.aireplaymate',
     [string]$TestPackage = 'com.lonquanzj.aireplaymate.test',
     [string]$DeviceSerial,
@@ -282,6 +284,12 @@ $failed = $false
 $scriptError = ''
 $miuiLaunchBlockDetected = $false
 $miuiLaunchBlockSummary = ''
+$installUserRestricted = $false
+$installUserRestrictedSummary = ''
+$installDeleteInternalError = $false
+$installDeleteInternalErrorSummary = ''
+$failureCategory = 'unknown'
+$failureSummary = ''
 # Normalize test selectors from either array input or comma-joined text.
 $selectedTestsRaw = if ([string]::IsNullOrWhiteSpace($TestClass)) {
     @($TestClasses)
@@ -302,6 +310,23 @@ $selectedTests = @(
             }
         }
 )
+
+if (-not [string]::IsNullOrWhiteSpace($DiagnosticPreset)) {
+    $selectedTests = switch ($DiagnosticPreset) {
+        'activity-launch-probe' {
+            @('com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario')
+        }
+        'ui-entry-probe' {
+            @('com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points')
+        }
+        'overlay-long-press-probe' {
+            @('com.lonquanzj.aireplaymate.overlay.OverlayLongPressStyleMenuProbeTest#longPress_onFloatingBubble_triggersStyleMenuCallback')
+        }
+        default {
+            throw "Unsupported diagnostic preset: $DiagnosticPreset"
+        }
+    }
+}
 
 if ($selectedTests.Length -eq 0) {
     throw 'At least one test must be provided via -TestClasses or -TestClass.'
@@ -515,6 +540,7 @@ finally {
     }
 
     $instrumentText = Read-TextFileWithRetry -Path $instrumentLog
+    $installText = Read-TextFileWithRetry -Path $installLog
     $logcatText = Read-TextFileWithRetry -Path $logcatLog
     $testResults = @()
     if (-not [string]::IsNullOrWhiteSpace($instrumentText)) {
@@ -528,9 +554,54 @@ finally {
     $passed = $instrumentText -match 'INSTRUMENTATION_CODE:\s*-1'
     $crashed = $instrumentText -match 'shortMsg=Process crashed|Process crashed'
     $failed = $instrumentText -match 'INSTRUMENTATION_STATUS_CODE:\s*-2|FAILURES!!!|INSTRUMENTATION_FAILED'
+    $installUserRestricted = $installText -match 'INSTALL_FAILED_USER_RESTRICTED|Install canceled by user'
+    if ($installUserRestricted) {
+        $installUserRestrictedSummary = 'Detected install blocked by device/user policy (INSTALL_FAILED_USER_RESTRICTED). Keep the phone unlocked, allow USB install prompts, and relax MIUI security restrictions before rerun.'
+    }
+    $installDeleteInternalError = $installText -match 'DELETE_FAILED_INTERNAL_ERROR'
+    if ($installDeleteInternalError) {
+        $installDeleteInternalErrorSummary = 'Detected test package uninstall internal error (DELETE_FAILED_INTERNAL_ERROR). Usually stale package state; retry or manually uninstall the test package on device.'
+    }
     $miuiLaunchBlockDetected = $logcatText -match 'Abort background activity starts|result code=102|Permission Denied Activity KeyguardLocked|MIUILOG- Permission Denied Activity'
     if ($miuiLaunchBlockDetected) {
         $miuiLaunchBlockSummary = 'Detected MIUI/OEM background-activity-start blocking in logcat. Activity-launching instrumentation tests may fail before MainActivity.onCreate. Prefer DeviceRegressionTest as the default baseline on this device.'
+    }
+
+    if ($passed -and -not $crashed -and -not $failed -and $instrumentExit -eq 0 -and [string]::IsNullOrWhiteSpace($scriptError)) {
+        $failureCategory = 'passed'
+        $failureSummary = 'Smoke test finished successfully.'
+    }
+    elseif ($installUserRestricted) {
+        $failureCategory = 'install_user_restricted'
+        $failureSummary = $installUserRestrictedSummary
+    }
+    elseif ($installDeleteInternalError) {
+        $failureCategory = 'install_delete_internal_error'
+        $failureSummary = $installDeleteInternalErrorSummary
+    }
+    elseif ($miuiLaunchBlockDetected) {
+        $failureCategory = 'miui_launch_block'
+        $failureSummary = $miuiLaunchBlockSummary
+    }
+    elseif ($crashed) {
+        $failureCategory = 'process_crashed'
+        $failureSummary = 'Instrumentation reported process crash.'
+    }
+    elseif ($instrumentTimedOut) {
+        $failureCategory = 'instrumentation_timeout'
+        $failureSummary = 'Instrumentation process timed out before completion.'
+    }
+    elseif ($failed) {
+        $failureCategory = 'test_failed'
+        $failureSummary = 'One or more instrumentation tests failed.'
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($scriptError)) {
+        $failureCategory = 'script_error'
+        $failureSummary = $scriptError
+    }
+    else {
+        $failureCategory = 'unknown'
+        $failureSummary = 'Unable to classify failure from current logs.'
     }
 
     "" | Add-Content $summaryLog
@@ -557,9 +628,32 @@ finally {
     "failedTestCount=$($failedTestNames.Count)" | Add-Content $summaryLog
     "passedTests=$($passedTestNames -join '|')" | Add-Content $summaryLog
     "failedTests=$($failedTestNames -join '|')" | Add-Content $summaryLog
+    "installUserRestricted=$installUserRestricted" | Add-Content $summaryLog
+    "installUserRestrictedSummary=$installUserRestrictedSummary" | Add-Content $summaryLog
+    "installDeleteInternalError=$installDeleteInternalError" | Add-Content $summaryLog
+    "installDeleteInternalErrorSummary=$installDeleteInternalErrorSummary" | Add-Content $summaryLog
     "miuiLaunchBlockDetected=$miuiLaunchBlockDetected" | Add-Content $summaryLog
     "miuiLaunchBlockSummary=$miuiLaunchBlockSummary" | Add-Content $summaryLog
+    "failureCategory=$failureCategory" | Add-Content $summaryLog
+    "failureSummary=$failureSummary" | Add-Content $summaryLog
     "scriptError=$scriptError" | Add-Content $summaryLog
+
+    # Keep summary machine-readable for CLI/CI consumers.
+    try {
+        $summaryText = Read-TextFileWithRetry -Path $summaryLog
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($summaryLog, $summaryText, $utf8NoBom)
+    }
+    catch {
+    }
+}
+
+if ($installUserRestricted) {
+    Write-Warning $installUserRestrictedSummary
+}
+
+if ($installDeleteInternalError) {
+    Write-Warning $installDeleteInternalErrorSummary
 }
 
 if ($miuiLaunchBlockDetected) {
@@ -574,6 +668,8 @@ if ($testResults.Count -gt 0) {
     Write-Host "Passed tests: $($passedTestNames.Count)"
     Write-Host "Failed tests: $($failedTestNames.Count)"
 }
+
+Write-Host "Failure category: $failureCategory"
 
 if ($passed -and -not $crashed -and -not $failed -and $instrumentExit -eq 0 -and [string]::IsNullOrWhiteSpace($scriptError)) {
     Write-Host "SMOKE TEST PASSED"

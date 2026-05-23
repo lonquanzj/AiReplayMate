@@ -65,8 +65,8 @@
         "Bypass",
         "-File",
         "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
-        "-TestClass",
-        "com.lonquanzj.aireplaymate.MainActivityLaunchProbeTest#mainActivity_launches_with_activityScenario",
+        "-DiagnosticPreset",
+        "activity-launch-probe",
         "-SkipInstall",
         "-InstrumentTimeoutSeconds",
         "60"
@@ -91,11 +91,36 @@
         "Bypass",
         "-File",
         "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
-        "-TestClass",
-        "com.lonquanzj.aireplaymate.MainActivityUiEntryTest#mainScreen_renders_key_entry_points",
+        "-DiagnosticPreset",
+        "ui-entry-probe",
         "-SkipInstall",
         "-InstrumentTimeoutSeconds",
         "90"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device diagnostic: overlay long press probe (diagnostic only)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-DiagnosticPreset",
+        "overlay-long-press-probe",
+        "-InstrumentTimeoutSeconds",
+        "120"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
