@@ -34,10 +34,12 @@ class DefaultPromptBuilderTest {
 
         assertFalse(request.systemPrompt.contains("你是一个冷幽默但不冒犯的人。"))
         assertFalse(request.systemPrompt.contains("回复短一点，轻轻调侃。"))
+        assertFalse(request.systemPrompt.contains("当前模式：快速回复"))
         assertTrue(request.userPrompt.contains("你是一个冷幽默但不冒犯的人。"))
         assertTrue(request.userPrompt.contains("回复短一点，轻轻调侃。"))
         assertFalse(request.userPrompt.contains("上下文可能来自 OCR"))
         assertFalse(request.userPrompt.contains("近形错"))
+        assertFalse(request.userPrompt.contains("本次角色："))
         assertTrue(request.systemPrompt.contains("输出协议"))
         assertTrue(request.userPrompt.contains("今晚有空吗？"))
         assertEquals(2f, request.temperature)
@@ -134,11 +136,12 @@ class DefaultPromptBuilderTest {
 
         assertFalse(request.systemPrompt.contains("你正在帮用户发出自然邀约。"))
         assertFalse(request.systemPrompt.contains("细腻暖男"))
-        assertTrue(request.userPrompt.contains("话术分类：自定义邀约"))
-        assertTrue(request.userPrompt.contains("话术名称：周末约饭"))
+        assertFalse(request.systemPrompt.contains("当前模式：话术宝典。"))
+        assertFalse(request.userPrompt.contains("话术分类：自定义邀约"))
+        assertFalse(request.userPrompt.contains("话术名称：周末约饭"))
         assertTrue(request.userPrompt.contains("话术身份：你正在帮用户发出自然邀约。"))
         assertTrue(request.userPrompt.contains("不要压迫对方"))
-        assertTrue(request.userPrompt.contains("叠加角色风格：细腻暖男"))
+        assertFalse(request.userPrompt.contains("叠加角色风格：细腻暖男"))
         assertFalse(request.userPrompt.contains("聊天上下文："))
     }
 
@@ -161,7 +164,8 @@ class DefaultPromptBuilderTest {
         )
 
         assertFalse(request.systemPrompt.contains("你正在把表达改得更松弛。"))
-        assertTrue(request.userPrompt.contains("润色目标：更松弛"))
+        assertFalse(request.systemPrompt.contains("当前模式：润色表达。"))
+        assertFalse(request.userPrompt.contains("润色目标：更松弛"))
         assertTrue(request.userPrompt.contains("润色身份：你正在把表达改得更松弛。"))
         assertTrue(request.userPrompt.contains("去掉压力感"))
         assertTrue(request.userPrompt.contains("我晚点回你"))
@@ -184,6 +188,7 @@ class DefaultPromptBuilderTest {
         assertFalse(request.userPrompt.contains("message-4"))
         assertTrue(request.userPrompt.contains("message-5"))
         assertTrue(request.userPrompt.contains("message-24"))
+        assertFalse(request.userPrompt.contains("最近一条对方消息："))
     }
 
     @Test

@@ -195,6 +195,7 @@ class DeviceRegressionTest {
         assertTrue(fullContextRequest.userPrompt.contains("聊天上下文："))
         assertTrue(fullContextRequest.userPrompt.contains("我: 刚忙完"))
         assertTrue(fullContextRequest.userPrompt.contains("对方: 今晚要不要一起吃饭？"))
+        assertFalse(fullContextRequest.userPrompt.contains("最近一条对方消息："))
         assertFalse(fullContextRequest.userPrompt.contains("\u0007"))
 
         val latestFriendOnlyRequest = DefaultPromptBuilder.build(
@@ -228,8 +229,8 @@ class DeviceRegressionTest {
             draftText = "那你定地方，我下班过去"
         )
 
-        assertTrue(polishRequest.systemPrompt.contains("当前模式：润色表达。"))
-        assertTrue(polishRequest.userPrompt.contains("润色目标：更暧昧"))
+        assertFalse(polishRequest.systemPrompt.contains("当前模式：润色表达。"))
+        assertFalse(polishRequest.userPrompt.contains("润色目标：更暧昧"))
         assertTrue(polishRequest.userPrompt.contains("不新增事实、不替用户承诺现实动作"))
         assertTrue(polishRequest.userPrompt.contains("草稿："))
         assertTrue(polishRequest.userPrompt.contains("那你定地方，我下班过去"))
