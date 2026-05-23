@@ -49,7 +49,7 @@ class OpenAiCompatibleLlmGatewayTest {
     }
 
     @Test
-    fun generateReplies_fails_when_model_returns_fewer_candidates_than_requested() = runTest {
+    fun generateReplies_succeeds_when_model_returns_fewer_candidates_than_requested() = runTest {
         server = FakeHttpServer(
             status = 200,
             body = """
@@ -67,10 +67,37 @@ class OpenAiCompatibleLlmGatewayTest {
 
         val result = newGateway().generateReplies(defaultRequest(candidateCount = 2))
 
-        assertTrue(result.isFailure)
-        assertEquals(LlmDebugPhase.FAILED, LlmDebugStore.state.value.phase)
-        assertEquals(LlmFailureCategory.INSUFFICIENT_CANDIDATES, LlmDebugStore.state.value.failureCategory)
+                assertTrue(result.isSuccess)
+                assertEquals(listOf("one"), result.getOrThrow().map { it.text })
+                assertEquals(LlmDebugPhase.PARSED, LlmDebugStore.state.value.phase)
+                assertEquals(LlmFailureCategory.NONE, LlmDebugStore.state.value.failureCategory)
     }
+
+        @Test
+        fun generateReplies_supports_array_message_content_shape() = runTest {
+                server = FakeHttpServer(
+                        status = 200,
+                        body = """
+                                {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": [
+                                                    {"type":"text","text":"{\"candidates\":[{\"text\":\"alpha\"},{\"text\":\"beta\"}]}"}
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                        """.trimIndent()
+                )
+
+                val result = newGateway().generateReplies(defaultRequest(candidateCount = 2))
+
+                assertTrue(result.isSuccess)
+                assertEquals(listOf("alpha", "beta"), result.getOrThrow().map { it.text })
+                assertEquals(LlmDebugPhase.PARSED, LlmDebugStore.state.value.phase)
+        }
 
     @Test
     fun generateReplies_sends_authorization_header_and_parses_candidates() = runTest {

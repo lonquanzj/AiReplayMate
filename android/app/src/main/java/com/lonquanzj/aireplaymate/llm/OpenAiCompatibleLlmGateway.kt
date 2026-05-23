@@ -61,19 +61,15 @@ class OpenAiCompatibleLlmGateway(
                     throw IllegalStateException("LLM 请求失败：HTTP ${connection.responseCode} ${responseText.take(160)}")
                 }
 
-                val content = JSONObject(responseText)
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
+                val content = extractAssistantMessageContent(responseText)
 
                 val candidates = LlmResponseParser.parseCandidates(
                     rawContent = content,
                     requestedCount = request.candidateCount,
                     sourceModel = settings.model
                 )
-                if (candidates.size < request.candidateCount) {
-                    throw IllegalStateException("LLM 返回候选不足")
+                if (candidates.isEmpty()) {
+                    throw IllegalStateException("LLM 未返回可解析候选")
                 }
                 LlmDebugStore.onParsed(
                     candidateCount = candidates.size,
@@ -87,6 +83,43 @@ class OpenAiCompatibleLlmGateway(
     private fun HttpURLConnection.readResponseText(): String {
         val stream = if (responseCode in 200..299) inputStream else errorStream
         return stream?.bufferedReader(Charsets.UTF_8)?.use(BufferedReader::readText).orEmpty()
+    }
+
+    private fun extractAssistantMessageContent(responseText: String): String {
+        val root = JSONObject(responseText)
+        val message = root
+            .getJSONArray("choices")
+            .getJSONObject(0)
+            .getJSONObject("message")
+        val contentValue = message.opt("content")
+        return when (contentValue) {
+            is String -> contentValue
+            is JSONArray -> {
+                buildString {
+                    for (index in 0 until contentValue.length()) {
+                        val item = contentValue.opt(index)
+                        when (item) {
+                            is JSONObject -> {
+                                val text = item.optString("text")
+                                if (text.isNotBlank()) {
+                                    if (isNotBlank()) append('\n')
+                                    append(text)
+                                }
+                            }
+
+                            is String -> {
+                                if (item.isNotBlank()) {
+                                    if (isNotBlank()) append('\n')
+                                    append(item)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            else -> ""
+        }.trim()
     }
 
     private companion object {

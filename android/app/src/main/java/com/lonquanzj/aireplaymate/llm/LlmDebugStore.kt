@@ -183,7 +183,8 @@ object LlmDebugStore {
             text.contains("候选不足") -> LlmFailureCategory.INSUFFICIENT_CANDIDATES
             text.contains("JSONObject") ||
                 text.contains("JSONArray") ||
-                text.contains("No value for") -> LlmFailureCategory.PARSE
+                text.contains("No value for") ||
+                text.contains("可解析候选") -> LlmFailureCategory.PARSE
             text.contains("API Key") ||
                 text.contains("Base URL") ||
                 text.contains("Model") -> LlmFailureCategory.CONFIG

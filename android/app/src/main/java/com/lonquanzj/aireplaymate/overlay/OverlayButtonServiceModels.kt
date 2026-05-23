@@ -38,7 +38,6 @@ internal data class OverlayCandidate(
 internal const val DRAG_SLOP = 8
 internal const val LONG_PRESS_TIMEOUT_MS = 520L
 internal const val STYLE_MENU_ALL_GROUP_ID = "all"
-internal const val STYLE_MENU_TITLE_TAG = "style_menu_title"
 internal const val STYLE_MENU_HINT_TAG = "style_menu_hint"
 internal const val FLOATING_BUTTON_SIZE_DP = 56
 internal const val DOCKED_VISIBLE_WIDTH_DP = 44

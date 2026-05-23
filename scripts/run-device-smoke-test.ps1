@@ -6,7 +6,8 @@ param(
         'com.lonquanzj.aireplaymate.DeviceRegressionTest#llm_debug_store_tracks_state_transitions_and_hints',
         'com.lonquanzj.aireplaymate.DeviceRegressionTest#overlay_diagnostics_store_tracks_flow_and_failure_state',
         'com.lonquanzj.aireplaymate.DeviceRegressionTest#diagnostic_log_store_persists_sanitizes_and_deduplicates_entries',
-        'com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_debug_store_tracks_attempt_result_and_message_previews'
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_debug_store_tracks_attempt_result_and_message_previews',
+        'com.lonquanzj.aireplaymate.DeviceRegressionTest#ocr_post_processor_filters_overlay_candidate_panel_texts_after_regenerate'
     ),
     [string]$TestClass,
     [ValidateSet('activity-launch-probe', 'ui-entry-probe', 'overlay-long-press-probe')]

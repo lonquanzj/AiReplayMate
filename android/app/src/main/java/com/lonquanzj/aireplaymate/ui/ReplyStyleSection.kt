@@ -7,11 +7,17 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -21,8 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lonquanzj.aireplaymate.context.ChatContext
 import com.lonquanzj.aireplaymate.prompt.AppSettings
 import com.lonquanzj.aireplaymate.prompt.DefaultPromptBuilder
@@ -257,10 +266,12 @@ private fun StyleCategoryHeader(
         )
         StyleSmallActionButton(
             text = if (isEditMode) "完成" else "编辑",
+            highlighted = isEditMode,
             onClick = onEditClick
         )
         StyleSmallActionButton(
             text = "Prompt 预览",
+            highlighted = false,
             onClick = onPreviewClick
         )
     }
@@ -269,7 +280,30 @@ private fun StyleCategoryHeader(
 @Composable
 private fun StyleSmallActionButton(
     text: String,
+    highlighted: Boolean,
     onClick: () -> Unit
 ) {
-    SoftOutlinedAction(text = text, onClick = onClick)
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.defaultMinSize(minHeight = 26.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 1.dp),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = if (highlighted) SoftAction else SoftOutlineStrong
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (highlighted) SoftActionContainer else SoftPurplePanelTop.copy(alpha = 0.45f),
+            contentColor = if (highlighted) SoftAction else SoftAccent
+        )
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.Medium
+        )
+    }
 }

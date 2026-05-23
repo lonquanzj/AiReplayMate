@@ -1,7 +1,6 @@
 package com.lonquanzj.aireplaymate.overlay
 
 import android.content.Context
-import android.graphics.Typeface
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.ViewGroup
@@ -24,27 +23,12 @@ internal fun styleMenuHintRowView(
                 orientation = LinearLayout.VERTICAL
                 addView(
                     TextView(context).apply {
-                        tag = STYLE_MENU_TITLE_TAG
-                        text = styleMenuSelectedLabel(tab, current)
-                        textSize = TEXT_SIZE_12
-                        typeface = Typeface.DEFAULT_BOLD
-                        setTextColor(COLOR_TEXT_ACCENT)
-                    }
-                )
-                addView(
-                    TextView(context).apply {
                         tag = STYLE_MENU_HINT_TAG
-                        text = styleMenuSelectionHint(context, tab, current)
+                        text = styleMenuSelectionHint(tab)
                         textSize = TEXT_SIZE_10_5
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
                         setTextColor(COLOR_TEXT_MUTED)
-                    },
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        topMargin = context.dpPx(STYLE_HINT_SUBTITLE_TOP_MARGIN)
                     }
                 )
             },
@@ -73,43 +57,15 @@ internal fun styleMenuHintRowView(
 internal fun updateStyleMenuHintRow(
     row: LinearLayout,
     tab: StyleMenuTab,
-    current: ReplyStyleProfile
+    @Suppress("UNUSED_PARAMETER") current: ReplyStyleProfile
 ) {
-    val titleView = row.findViewWithTag<TextView>(STYLE_MENU_TITLE_TAG)
     val hintView = row.findViewWithTag<TextView>(STYLE_MENU_HINT_TAG)
-    titleView?.text = styleMenuSelectedLabel(tab, current)
-    hintView?.text = styleMenuSelectionHint(row.context, tab, current)
-}
-
-private fun styleMenuSelectedLabel(
-    tab: StyleMenuTab,
-    current: ReplyStyleProfile
-): String {
-    return when (tab) {
-        StyleMenuTab.PERSONA -> current.personaConfig.label
-        StyleMenuTab.PLAYBOOK -> current.playbookConfig.label
-        StyleMenuTab.POLISH -> current.polishGoalConfig.label
-    }
+    hintView?.text = styleMenuSelectionHint(tab)
 }
 
 private fun styleMenuSelectionHint(
-    context: Context,
-    tab: StyleMenuTab,
-    current: ReplyStyleProfile
+    tab: StyleMenuTab
 ): String {
-    return when (tab) {
-        StyleMenuTab.PERSONA -> context.getString(
-            R.string.overlay_prefix_persona,
-            current.personaConfig.label
-        )
-        StyleMenuTab.PLAYBOOK -> context.getString(
-            R.string.overlay_prefix_playbook,
-            current.playbookConfig.label
-        )
-        StyleMenuTab.POLISH -> context.getString(
-            R.string.overlay_prefix_polish,
-            current.polishGoalConfig.label
-        )
-    }
+    return tab.hint
 }
 

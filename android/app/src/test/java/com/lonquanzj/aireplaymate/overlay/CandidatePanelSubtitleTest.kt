@@ -57,7 +57,7 @@ class CandidatePanelSubtitleTest {
             styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
         )
 
-        assertEquals("本地生成 · 已参考最近一条消息", subtitle)
+        assertEquals("LLM 不可用 · 本地生成 · 已参考最近一条消息", subtitle)
     }
 
     @Test
@@ -93,7 +93,7 @@ class CandidatePanelSubtitleTest {
             styleProfile = ReplyStyleProfile(mode = ReplyStyleMode.QUICK_REPLY)
         )
 
-        assertEquals("本地生成 · 暂无聊天上下文", subtitle)
+        assertEquals("LLM 不可用 · 本地生成 · 暂无聊天上下文", subtitle)
     }
 
     private fun sessionResult(

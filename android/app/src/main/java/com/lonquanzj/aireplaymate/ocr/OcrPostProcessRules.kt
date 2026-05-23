@@ -3,6 +3,8 @@ package com.lonquanzj.aireplaymate.ocr
 internal val chromeTexts = setOf(
     "微信",
     "发送",
+    "收起",
+    "全部",
     "按住 说话",
     "按住说话",
     "语音输入",
@@ -17,6 +19,14 @@ internal val chromeTexts = setOf(
     "聊天信息"
 )
 internal val chromeTextFragments = listOf(
+    "角色·",
+    "话术·",
+    "润色·",
+    "悬浮窗诊断",
+    "AI 正在工作",
+    "OCR Filter Summary",
+    "OCR Messages",
+    "打开无障碍设置",
     "正在输入",
     "条新消息",
     "以上是打招呼",

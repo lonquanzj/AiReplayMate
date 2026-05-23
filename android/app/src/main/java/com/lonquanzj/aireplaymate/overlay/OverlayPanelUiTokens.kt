@@ -57,7 +57,6 @@ internal const val STYLE_TAB_ROW_TOP_MARGIN = 2
 internal const val STYLE_TAB_ITEM_GAP = 2
 
 // Style menu panel: hint row
-internal const val STYLE_HINT_SUBTITLE_TOP_MARGIN = 1
 internal const val STYLE_HINT_CLOSE_PADDING_H = 6
 internal const val STYLE_HINT_CLOSE_MIN_WIDTH = 24
 internal const val STYLE_HINT_CLOSE_MIN_HEIGHT = 20

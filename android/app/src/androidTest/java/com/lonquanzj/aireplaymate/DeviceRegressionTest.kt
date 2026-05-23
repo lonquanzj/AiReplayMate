@@ -1,4 +1,5 @@
 package com.lonquanzj.aireplaymate
+import android.graphics.Rect
 import java.net.SocketTimeoutException
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -17,6 +18,9 @@ import com.lonquanzj.aireplaymate.ocr.OcrAttemptCategory
 import com.lonquanzj.aireplaymate.ocr.OcrAttemptResult
 import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
+import com.lonquanzj.aireplaymate.ocr.OcrFilterReason
+import com.lonquanzj.aireplaymate.ocr.OcrRecognizedLine
+import com.lonquanzj.aireplaymate.ocr.OcrTextPostProcessor
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsStore
 import com.lonquanzj.aireplaymate.overlay.OverlayDiagnosticsState
 import com.lonquanzj.aireplaymate.overlay.OverlayRunPhase
@@ -569,6 +573,29 @@ class DeviceRegressionTest {
         assertTrue(failureState.extractedMessages.isEmpty())
         assertTrue(failureState.extractedMessagePreviews.isEmpty())
         assertEquals(listOf("MediaProjection 未授权"), failureState.steps)
+    }
+
+    @Test(timeout = 15_000)
+    fun ocr_post_processor_filters_overlay_candidate_panel_texts_after_regenerate() {
+        val result = OcrTextPostProcessor.toChatMessages(
+            lines = listOf(
+                OcrRecognizedLine("角色·温柔体贴", Rect(640, 420, 940, 460)),
+                OcrRecognizedLine("收起", Rect(900, 470, 960, 510)),
+                OcrRecognizedLine("今晚下雨别忘带伞", Rect(60, 760, 420, 804)),
+                OcrRecognizedLine("好的我马上回去", Rect(640, 840, 930, 884))
+            ),
+            screenWidth = 1000,
+            screenHeight = 2000
+        )
+
+        assertEquals(2, result.messages.size)
+        assertEquals("今晚下雨别忘带伞", result.messages[0].content)
+        assertEquals("好的我马上回去", result.messages[1].content)
+        assertTrue(
+            result.filterSummaries.any {
+                it.reason == OcrFilterReason.CHROME_TEXT && it.count >= 2
+            }
+        )
     }
 
     private fun assertLocalFallbackCandidates(

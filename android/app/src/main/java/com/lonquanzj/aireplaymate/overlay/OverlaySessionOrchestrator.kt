@@ -32,7 +32,9 @@ internal suspend fun runOverlaySession(
     styleProfile: ReplyStyleProfile,
     draftText: String?,
     onPhase: (RealReplySessionPhase, String) -> Unit,
-    onContext: (RealReplySessionContextSnapshot) -> Unit
+    onContext: (RealReplySessionContextSnapshot) -> Unit,
+    onBeforeOcrCapture: suspend () -> Unit = {},
+    onAfterOcrCapture: suspend () -> Unit = {}
 ): OverlaySessionOutcome {
     // 会话期间使用同一份设置，避免流程中途读取变化导致行为不一致。
     val settings = AppSettingsStore.load(context)
@@ -44,7 +46,9 @@ internal suspend fun runOverlaySession(
         onPhase = { phase, status ->
             onPhase(phase, status)
         },
-        onContext = onContext
+        onContext = onContext,
+        onBeforeOcrCapture = onBeforeOcrCapture,
+        onAfterOcrCapture = onAfterOcrCapture
     )
 
     val sessionResult = result.getOrElse { error ->

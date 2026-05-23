@@ -39,7 +39,7 @@ object LlmResponseParser {
                 for (index in 0 until candidates.length()) {
                     val item = candidates.opt(index)
                     val text = when (item) {
-                        is JSONObject -> item.optString("text")
+                        is JSONObject -> item.extractCandidateText()
                         is String -> item
                         else -> ""
                     }
@@ -59,6 +59,13 @@ object LlmResponseParser {
             }
             .filter { it.isNotBlank() }
             .toList()
+    }
+
+    private fun JSONObject.extractCandidateText(): String {
+        return sequenceOf("text", "content", "reply", "message")
+            .map { key -> optString(key) }
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
     }
 
     private fun String.removeMarkdownFence(): String {

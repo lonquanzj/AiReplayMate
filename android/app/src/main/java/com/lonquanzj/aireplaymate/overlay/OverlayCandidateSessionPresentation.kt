@@ -73,7 +73,7 @@ private fun localFallbackToastText(reason: String?): String {
         safeReason.contains("parse", ignoreCase = true) ||
         safeReason.contains("JSON", ignoreCase = true)
     ) {
-        "Prompt 协议可能不匹配，已使用本地兜底"
+        "LLM 不可用（Prompt 协议可能不匹配），已使用本地兜底"
     } else {
         "LLM 不可用，已使用本地兜底：$safeReason"
     }

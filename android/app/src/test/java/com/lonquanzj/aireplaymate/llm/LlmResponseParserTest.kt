@@ -81,4 +81,23 @@ class LlmResponseParserTest {
 
         assertEquals(listOf("你好", "在吗"), candidates.map { it.text })
     }
+
+    @Test
+    fun parseCandidates_supports_content_and_reply_fields() {
+        val candidates = LlmResponseParser.parseCandidates(
+            rawContent = """
+                {
+                  "candidates": [
+                    {"content": "第一条"},
+                    {"reply": "第二条"},
+                    {"message": "第三条"}
+                  ]
+                }
+            """.trimIndent(),
+            requestedCount = 3,
+            sourceModel = "gpt-test"
+        )
+
+        assertEquals(listOf("第一条", "第二条", "第三条"), candidates.map { it.text })
+    }
 }

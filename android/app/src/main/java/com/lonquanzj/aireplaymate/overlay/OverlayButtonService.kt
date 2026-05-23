@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -43,6 +44,8 @@ class OverlayButtonService : Service() {
     companion object {
         private const val CANDIDATE_PANEL_WIDTH_DP = 284
         private const val PROGRESS_PANEL_WIDTH_DP = 248
+        private const val REGENERATE_CAPTURE_GUARD_DELAY_MS = 320L
+        private const val OCR_CAPTURE_OVERLAY_HIDE_DELAY_MS = 240L
     }
 
     private var windowManager: WindowManager? = null
@@ -58,6 +61,7 @@ class OverlayButtonService : Service() {
     private lateinit var styleMenuLauncher: OverlayStyleMenuLauncher
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var overlayWasVisibleBeforeOcrCapture = false
 
     // ===== 生命周期 =====
 
@@ -212,6 +216,12 @@ class OverlayButtonService : Service() {
                     mergedMessageCount = snapshot.mergedMessageCount,
                     usedOcr = snapshot.usedOcr
                 )
+            },
+            onBeforeOcrCapture = {
+                prepareOverlayIsolationForOcrCapture()
+            },
+            onAfterOcrCapture = {
+                restoreOverlayAfterOcrCapture()
             }
         )
 
@@ -237,8 +247,7 @@ class OverlayButtonService : Service() {
             draftText = draftText,
             onRegenerate = { nextProfile, nextDraftText ->
                 OverlayDiagnosticsStore.onDone("用户重新生成候选")
-                removeCandidatePanel()
-                triggerCandidateGeneration(nextProfile, nextDraftText)
+                triggerCandidateGenerationAfterPanelDismiss(nextProfile, nextDraftText)
             },
             onClose = {
                 OverlayDiagnosticsStore.onDone("用户关闭候选面板")
@@ -299,6 +308,39 @@ class OverlayButtonService : Service() {
             status = status,
             desiredWidthDp = PROGRESS_PANEL_WIDTH_DP
         )
+    }
+
+    private fun triggerCandidateGenerationAfterPanelDismiss(
+        styleProfile: ReplyStyleProfile,
+        draftText: String?
+    ) {
+        removeCandidatePanel()
+        // 让悬浮候选面板先完全从系统合成帧移除，再触发下一轮 OCR，避免把候选文案误当作聊天上下文。
+        mainHandler.postDelayed(
+            {
+                triggerCandidateGeneration(styleProfile, draftText)
+            },
+            REGENERATE_CAPTURE_GUARD_DELAY_MS
+        )
+    }
+
+    private suspend fun prepareOverlayIsolationForOcrCapture() {
+        removeCandidatePanel()
+        val overlay = overlayView ?: return
+        overlayWasVisibleBeforeOcrCapture = overlay.visibility == View.VISIBLE
+        if (overlayWasVisibleBeforeOcrCapture) {
+            overlay.visibility = View.INVISIBLE
+            // 给系统一帧以上时间移除悬浮层，避免 OCR 截图仍捕获旧帧。
+            delay(OCR_CAPTURE_OVERLAY_HIDE_DELAY_MS)
+        }
+    }
+
+    private fun restoreOverlayAfterOcrCapture() {
+        if (!overlayWasVisibleBeforeOcrCapture) {
+            return
+        }
+        overlayView?.visibility = View.VISIBLE
+        overlayWasVisibleBeforeOcrCapture = false
     }
 
     // ===== 动画与交互状态 =====

@@ -5,6 +5,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.fail
@@ -12,10 +13,25 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 class OverlayButtonServiceBehaviorTest {
+    @Test
+    fun triggerCandidateGenerationAfterPanelDismiss_postsDelayedRegenerateTrigger() {
+        val service = Robolectric.buildService(OverlayButtonService::class.java).get()
+        setPrivateField(service, "isGeneratingCandidates", true)
+
+        invokePrivateRegenerateAfterDismiss(service, ReplyStyleProfile(), null)
+
+        assertNull(ShadowToast.getTextOfLatestToast())
+
+        shadowOf(service.mainLooper).idleFor(Duration.ofMillis(500))
+
+        assertEquals("正在生成候选回复，请稍等", ShadowToast.getTextOfLatestToast())
+    }
+
     @Test
     fun showProgressPanel_whenStatusViewExists_onlyUpdatesText() {
         val service = Robolectric.buildService(OverlayButtonService::class.java).get()
@@ -114,6 +130,20 @@ class OverlayButtonServiceBehaviorTest {
     ) {
         val method = OverlayButtonService::class.java.getDeclaredMethod(
             "triggerCandidateGeneration",
+            ReplyStyleProfile::class.java,
+            String::class.java
+        )
+        method.isAccessible = true
+        method.invoke(service, profile, draftText)
+    }
+
+    private fun invokePrivateRegenerateAfterDismiss(
+        service: OverlayButtonService,
+        profile: ReplyStyleProfile,
+        draftText: String?
+    ) {
+        val method = OverlayButtonService::class.java.getDeclaredMethod(
+            "triggerCandidateGenerationAfterPanelDismiss",
             ReplyStyleProfile::class.java,
             String::class.java
         )

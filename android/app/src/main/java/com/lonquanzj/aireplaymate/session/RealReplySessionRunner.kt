@@ -61,7 +61,9 @@ class RealReplySessionRunner(
         targetApp: String = WECHAT_TARGET_APP,
         conversationType: ConversationType = ConversationType.SINGLE_CHAT,
         onPhase: (RealReplySessionPhase, String) -> Unit = { _, _ -> },
-        onContext: (RealReplySessionContextSnapshot) -> Unit = {}
+        onContext: (RealReplySessionContextSnapshot) -> Unit = {},
+        onBeforeOcrCapture: suspend () -> Unit = {},
+        onAfterOcrCapture: suspend () -> Unit = {}
     ): Result<RealReplySessionResult> {
         onPhase(RealReplySessionPhase.VALIDATING, "正在校验当前页面")
         validateTarget(debugState)?.let { blocker ->
@@ -89,10 +91,15 @@ class RealReplySessionRunner(
         if (requiresChatContext && !chatContext.enoughForReply) {
             usedOcr = true
             onPhase(RealReplySessionPhase.OCR_FALLBACK, "Accessibility 上下文不足，开始 OCR 兜底")
-            val ocrResult = ocrEngineFactory(context.applicationContext).recognizeChatMessages(
-                targetApp = targetApp,
-                reason = "悬浮按钮触发时 Accessibility 上下文不足"
-            )
+            val ocrResult = try {
+                onBeforeOcrCapture()
+                ocrEngineFactory(context.applicationContext).recognizeChatMessages(
+                    targetApp = targetApp,
+                    reason = "悬浮按钮触发时 Accessibility 上下文不足"
+                )
+            } finally {
+                onAfterOcrCapture()
+            }
             chatContext = contextBuilder.build(
                 accessibilityMessages = debugState.extractedMessages,
                 ocrMessages = ocrResult.messages,

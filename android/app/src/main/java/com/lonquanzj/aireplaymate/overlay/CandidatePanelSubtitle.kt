@@ -10,7 +10,7 @@ fun RealReplySessionResult.toCandidatePanelSubtitle(
     settings: AppSettings,
     styleProfile: ReplyStyleProfile
 ): String {
-    val generatorLabel = if (usedLocalFallback) "本地生成" else "AI 生成"
+    val generatorLabel = if (usedLocalFallback) "LLM 不可用 · 本地生成" else "AI 生成"
     val basisLabel = when {
         styleProfile.mode == ReplyStyleMode.PLAYBOOK -> "按场景生成"
         styleProfile.mode == ReplyStyleMode.POLISH -> "已参考输入草稿"
