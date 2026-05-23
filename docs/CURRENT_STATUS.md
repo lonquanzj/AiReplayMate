@@ -61,6 +61,20 @@
 
 当前悬浮交互入口位于 [OverlayButtonService.kt](../android/app/src/main/java/com/lonquanzj/aireplaymate/overlay/OverlayButtonService.kt:45)。
 
+#### Overlay 拆分现状（最近）
+
+为降低大文件复杂度，overlay 已完成一轮“服务编排化”拆分：
+
+- 会话执行：`OverlaySessionOrchestrator`
+- 浮球交互：`OverlayFloatingBubbleController`
+- 布局计算：`OverlayPanelLayoutCalculator`
+- 动画管理：`OverlayPanelAnimationController`
+- 悬浮按钮工厂：`OverlayFloatingButtonViewFactory`
+- 面板构建：`OverlayCandidatePanel`、`OverlayStyleMenuPanel`、`OverlayFailurePanel`、`OverlayProgressPanel`
+- 通用 UI：`OverlayUiDimens`、`OverlayUiEffects`、`OverlayUiStyles`、`OverlayPanelUiTokens`
+
+最近还补充了这批文件与 `OverlayButtonService` 的注释（文件职责、关键函数、调用链索引），当前更适合按职责跳读。
+
 ### LLM 与本地兜底
 
 当前 LLM 能力已包括：
@@ -148,6 +162,14 @@ OCR 目前已经接入真实识别，不再只是留接口：
 - 悬浮窗诊断、OCR 诊断、LLM 诊断与摘要日志已落地
 - Autofill 最小填入链路已接入，并具备失败分类
 - 应用品牌资源和悬浮 UI 样式已做第一轮打磨
+- Overlay 大文件拆分完成第一轮，服务层职责已收敛为编排
+- Overlay 拆分文件与 Service 已补充阅读导向注释
+
+最近一次回归（2026-05-23）：
+
+- 真机稳定 smoke（7 条）通过
+- `:app:testDebugUnitTest` 通过
+- 两个 Diagnostic Only 的 Activity 探针在当前 MIUI 设备失败（系统后台拉起限制），仍不作为默认门禁
 
 ## 5. 仍未完成的部分
 

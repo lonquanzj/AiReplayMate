@@ -1,30 +1,14 @@
 package com.lonquanzj.aireplaymate.overlay
 
-import android.animation.Animator
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.app.Service
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.text.TextUtils
-import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -33,18 +17,9 @@ import com.lonquanzj.aireplaymate.R
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityActionBridge
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugStore
 import com.lonquanzj.aireplaymate.accessibility.AccessibilityDebugState
-import com.lonquanzj.aireplaymate.ocr.OcrDebugState
 import com.lonquanzj.aireplaymate.ocr.OcrDebugStore
-import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
-import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalog
-import com.lonquanzj.aireplaymate.prompt.ReplyStyleCatalogState
-import com.lonquanzj.aireplaymate.prompt.ReplyStyleMode
 import com.lonquanzj.aireplaymate.prompt.ReplyStyleProfile
-import com.lonquanzj.aireplaymate.prompt.ReplyPlaybookConfig
 import com.lonquanzj.aireplaymate.session.ReplyContextPreviewStore
-import com.lonquanzj.aireplaymate.session.RealReplySessionPhase
-import com.lonquanzj.aireplaymate.session.RealReplySessionRunner
-import com.lonquanzj.aireplaymate.settings.AppSettingsStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleCatalogStore
 import com.lonquanzj.aireplaymate.settings.ReplyStyleSettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -53,25 +28,47 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
+/**
+ * 悬浮窗服务主入口。
+ *
+ * 这个类只负责生命周期与流程编排：
+ * 1) 管理悬浮按钮与面板的显示/移除。
+ * 2) 串起候选生成会话与诊断记录。
+ * 3) 把交互、动画、布局、面板构建委托给拆分后的组件。
+ *
+ * 阅读索引（按主调用链）：
+ * 1. onCreate/onStartCommand -> showFloatingButton
+ * 2. showFloatingButton -> triggerCandidateGeneration
+ * 3. triggerCandidateGeneration -> showCandidatePanel
+ * 4. showCandidatePanel -> showStyleMenuPanel/showFailurePanel/showProgressPanel
+ * 5. 面板收敛与状态清理 -> removeCandidatePanel
+ * 6. 动画与按钮状态 -> updateFloatingButtonLoading/start*/stop*
+ */
 class OverlayButtonService : Service() {
+    private companion object {
+        const val CANDIDATE_PANEL_WIDTH_DP = 284
+        const val STYLE_MENU_PANEL_WIDTH_DP = 280
+        const val FAILURE_PANEL_WIDTH_DP = 300
+        const val FAILURE_PANEL_HEIGHT_DP = 500
+        const val PROGRESS_PANEL_WIDTH_DP = 248
+    }
+
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var floatingButtonView: FrameLayout? = null
     private var candidatePanelView: View? = null
     private var progressStatusView: TextView? = null
     private var progressIndicatorView: LinearLayout? = null
+    // 悬浮按钮当前的 WindowLayout 参数，面板锚点定位会依赖它。
     private var layoutParams: WindowManager.LayoutParams? = null
+    // 生成中互斥锁：避免并发触发多次候选会话。
     private var isGeneratingCandidates = false
-    private var floatingButtonAnimator: AnimatorSet? = null
-    private var floatingIdleAnimator: AnimatorSet? = null
-    private var idleBlinkRunnable: Runnable? = null
-    private var dockAnimator: ValueAnimator? = null
-    private var floatingAvatarView: ImageView? = null
-    private var isDocked = false
-    private var dockedSide: DockedSide? = null
-    private val progressIndicatorAnimators = mutableListOf<Animator>()
+    private lateinit var floatingBubbleController: OverlayFloatingBubbleController
+    private lateinit var panelAnimationController: OverlayPanelAnimationController
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    // ===== 生命周期 =====
 
     override fun onCreate() {
         super.onCreate()
@@ -83,6 +80,14 @@ class OverlayButtonService : Service() {
         }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        floatingBubbleController = OverlayFloatingBubbleController(
+            context = this,
+            mainHandler = mainHandler,
+            windowManagerProvider = { windowManager },
+            onLongPress = { showStyleMenuPanel() },
+            isGeneratingCandidates = { isGeneratingCandidates }
+        )
+        panelAnimationController = OverlayPanelAnimationController(this)
         showFloatingButton()
         OverlayServiceStateStore.onRunning(bubbleVisible = overlayView != null)
     }
@@ -107,6 +112,7 @@ class OverlayButtonService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        // Service 销毁时需要显式移除 WindowManager 挂载的所有 view。
         removeCandidatePanel()
         stopFloatingButtonAnimation()
         overlayView?.let { view ->
@@ -114,112 +120,38 @@ class OverlayButtonService : Service() {
         }
         overlayView = null
         floatingButtonView = null
-        floatingAvatarView = null
+        if (::floatingBubbleController.isInitialized) {
+            floatingBubbleController.floatingAvatarView = null
+        }
         windowManager = null
         OverlayServiceStateStore.onStopped()
         serviceScope.cancel()
         super.onDestroy()
     }
 
+    // ===== 会话入口（悬浮球 -> 候选生成） =====
+
     private fun showFloatingButton() {
         if (overlayView != null) return
 
-        val button = FrameLayout(this).apply {
-            background = floatingButtonBackground(isLoading = false)
-            alpha = 0.94f
-            elevation = 12f
-            setOnClickListener {
+        val floatingButtonBundle = buildFloatingButtonBundle(
+            context = this,
+            onClick = {
                 triggerCandidateGeneration(ReplyStyleSettingsStore.load(this@OverlayButtonService).asDefaultReply())
+            },
+            onAvatarBound = { avatarView ->
+                floatingBubbleController.floatingAvatarView = avatarView
             }
-        }
-        button.addView(createFloatingButtonIcon())
-
-        val params = WindowManager.LayoutParams(
-            dp(FLOATING_BUTTON_SIZE_DP),
-            dp(FLOATING_BUTTON_SIZE_DP),
-            overlayWindowType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(16)
-            y = dp(220)
-        }
+        )
+        val button = floatingButtonBundle.button
+        val params = floatingButtonBundle.layoutParams
 
         layoutParams = params
         overlayView = button
         floatingButtonView = button
-        attachDragHandler(button, params)
+        floatingBubbleController.attachDragHandler(button, params)
         windowManager?.addView(button, params)
-        startFloatingIdleAnimation()
-    }
-
-    private fun attachDragHandler(
-        view: View,
-        params: WindowManager.LayoutParams
-    ) {
-        var startX = 0
-        var startY = 0
-        var touchX = 0f
-        var touchY = 0f
-        var moved = false
-        var longPressTriggered = false
-        var longPressRunnable: Runnable? = null
-
-        view.setOnTouchListener { target, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    dockAnimator?.cancel()
-                    undockFloatingAvatar()
-                    startX = params.x
-                    startY = params.y
-                    touchX = event.rawX
-                    touchY = event.rawY
-                    moved = false
-                    longPressTriggered = false
-                    longPressRunnable = Runnable {
-                        if (!moved) {
-                            longPressTriggered = true
-                            target.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                            showStyleMenuPanel()
-                        }
-                    }.also { target.postDelayed(it, LONG_PRESS_TIMEOUT_MS) }
-                    true
-                }
-
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - touchX).toInt()
-                    val dy = (event.rawY - touchY).toInt()
-                    if (kotlin.math.abs(dx) > DRAG_SLOP || kotlin.math.abs(dy) > DRAG_SLOP) {
-                        moved = true
-                        longPressRunnable?.let(target::removeCallbacks)
-                        stopFloatingIdleAnimation()
-                    }
-                    params.x = startX + dx
-                    params.y = startY + dy
-                    windowManager?.updateViewLayout(target, params)
-                    true
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    longPressRunnable?.let(target::removeCallbacks)
-                    if (!moved && !longPressTriggered) {
-                        target.performClick()
-                    } else if (moved) {
-                        dockFloatingButton(target, params)
-                    }
-                    true
-                }
-
-                MotionEvent.ACTION_CANCEL -> {
-                    longPressRunnable?.let(target::removeCallbacks)
-                    true
-                }
-
-                else -> false
-            }
-        }
+        floatingBubbleController.startFloatingIdleAnimation()
     }
 
     private fun triggerCandidateGeneration(
@@ -234,6 +166,7 @@ class OverlayButtonService : Service() {
             isGeneratingCandidates = true
             updateFloatingButtonLoading(true)
             try {
+                // 优先实时探测页面；失败时回退到最近一次调试快照，保证流程可继续。
                 val debugState = AccessibilityActionBridge.tryInspectCurrentWindow()
                     .takeIf { it.success }
                     ?.state
@@ -251,11 +184,11 @@ class OverlayButtonService : Service() {
         styleProfile: ReplyStyleProfile,
         draftText: String? = null
     ) {
+        // 会话阶段统一写入诊断存储，便于首页和故障面板复盘。
         OverlayDiagnosticsStore.begin()
-        val settings = AppSettingsStore.load(this)
-        val result = RealReplySessionRunner(applicationContext).run(
+        val outcome = runOverlaySession(
+            context = this,
             debugState = debugState,
-            settings = settings,
             styleProfile = styleProfile,
             draftText = draftText,
             onPhase = { phase, status ->
@@ -263,15 +196,7 @@ class OverlayButtonService : Service() {
                     phase = phase.toOverlayPhase(),
                     status = status
                 )
-                showProgressPanel(
-                    when (phase) {
-                        RealReplySessionPhase.BUILDING_CONTEXT -> "正在整理聊天上下文..."
-                        RealReplySessionPhase.OCR_FALLBACK -> "正在用 OCR 兜底识别消息..."
-                        RealReplySessionPhase.REQUESTING_LLM -> "正在生成候选回复..."
-                        RealReplySessionPhase.LOCAL_FALLBACK -> "正在准备本地兜底候选..."
-                        RealReplySessionPhase.VALIDATING -> "正在校验微信页面..."
-                    }
-                )
+                showProgressPanel(overlayProgressStatus(phase))
             },
             onContext = { snapshot ->
                 OverlayDiagnosticsStore.onContext(
@@ -283,12 +208,17 @@ class OverlayButtonService : Service() {
             }
         )
 
-        val sessionResult = result.getOrElse { error ->
-            val message = error.message ?: "生成候选失败"
+        if (outcome is OverlaySessionOutcome.Failure) {
+            val message = outcome.message
             OverlayDiagnosticsStore.onFailed(message)
             showFailurePanel(message, debugState)
             return
         }
+
+        val success = (outcome as OverlaySessionOutcome.Success).value
+        val settings = success.settings
+        val sessionResult = success.sessionResult
+
         if (sessionResult.usedLocalFallback) {
             val reason = sessionResult.localFallbackReason ?: "未知错误"
             val promptHint = if (
@@ -320,49 +250,50 @@ class OverlayButtonService : Service() {
         )
         removeCandidatePanel()
 
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(9), dp(12), dp(12))
-            background = candidatePanelBackground()
-            elevation = 14f
-        }
-
         val subtitle = sessionResult.toCandidatePanelSubtitle(settings, styleProfile)
-        panel.addView(
-            candidatePanelHeader(
-                title = styleProfile.candidatePanelLabel,
-                modeLabel = "",
-                subtitle = subtitle,
-                onAction = {
-                    OverlayDiagnosticsStore.onDone("用户重新生成候选")
+        val panel = buildCandidatePanelView(
+            context = this,
+            title = styleProfile.candidatePanelLabel,
+            subtitle = subtitle,
+            modeLabel = "",
+            candidates = candidates,
+            onRegenerate = {
+                OverlayDiagnosticsStore.onDone("用户重新生成候选")
+                removeCandidatePanel()
+                triggerCandidateGeneration(styleProfile, draftText)
+            },
+            onClose = {
+                OverlayDiagnosticsStore.onDone("用户关闭候选面板")
+                removeCandidatePanel()
+            },
+            onCandidateClick = { candidate ->
+                val result = AccessibilityActionBridge.tryAutofill(candidate.text)
+                OverlayDiagnosticsStore.onAutofill(result.message)
+                Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
+                if (result.success) {
+                    OverlayDiagnosticsStore.onDone("候选已填入输入框，等待用户手动发送")
                     removeCandidatePanel()
-                    triggerCandidateGeneration(styleProfile, draftText)
-                },
-                onClose = {
-                    OverlayDiagnosticsStore.onDone("用户关闭候选面板")
-                    removeCandidatePanel()
+                } else {
+                    OverlayDiagnosticsStore.onFailed(result.message)
                 }
-            ),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        addCandidateStack(
-            parent = panel,
-            items = candidates,
-            topMarginDp = 10
+            }
         )
 
         candidatePanelView = panel
-        val params = anchoredPanelLayoutParams(
+        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
+            context = this,
             contentView = panel,
-            panelWidth = panelWidthDp(284)
+            buttonLayoutParams = layoutParams,
+            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
+                context = this,
+                desiredDp = CANDIDATE_PANEL_WIDTH_DP
+            )
         )
         windowManager?.addView(panel, params)
-        animatePanelIn(panel)
+        animatePanelIn(panel, dp(8).toFloat())
     }
+
+    // ===== 面板渲染（样式/失败/进度） =====
 
     private fun showStyleMenuPanel() {
         if (isGeneratingCandidates) {
@@ -374,264 +305,60 @@ class OverlayButtonService : Service() {
         val catalog = ReplyStyleCatalogStore.load(this)
         removeCandidatePanel()
 
-        run {
-            val playbooksByCategory = catalog.playbooks.groupBy { it.categoryLabel }
-            var selectedTab = StyleMenuTab.PERSONA
-            val selectedGroupIds = mutableMapOf(
-                StyleMenuTab.PERSONA to STYLE_MENU_ALL_GROUP_ID,
-                StyleMenuTab.PLAYBOOK to playbooksByCategory.keys.firstOrNull().orEmpty(),
-                StyleMenuTab.POLISH to STYLE_MENU_ALL_GROUP_ID
-            )
-
-            val content = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(10), dp(7), dp(10), dp(8))
-                background = styleMenuPanelBackground()
-                elevation = 14f
-            }
-
-            val hintRow = styleMenuHintRow(selectedTab, current) { removeCandidatePanel() }
-            content.addView(hintRow)
-
-            val tabRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(3), dp(3), dp(3), dp(3))
-                background = styleMenuSegmentBackground()
-            }
-            val body = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            content.addView(
-                tabRow,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = dp(2)
-                }
-            )
-            content.addView(
-                body,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
-
-            val scrollView = ScrollView(this).apply {
-                addView(content)
-            }
-            candidatePanelView = scrollView
-            var params: WindowManager.LayoutParams? = null
-
-            fun updateMenu() {
-                tabRow.removeAllViews()
-                updateStyleMenuHintRow(hintRow, selectedTab, current)
-                StyleMenuTab.entries.forEachIndexed { index, tab ->
-                    tabRow.addView(
-                        styleMenuTabButton(tab.label, tab == selectedTab) {
-                            selectedTab = tab
-                            updateMenu()
-                        },
-                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index > 0) marginStart = dp(2)
-                        }
-                    )
-                }
-
-                body.removeAllViews()
-                renderStyleMenuContent(
-                    parent = body,
-                    tab = selectedTab,
-                    current = current,
-                    catalog = catalog,
-                    playbooksByCategory = playbooksByCategory,
-                    selectedGroupId = selectedGroupIds[selectedTab],
-                    onGroupSelected = { tab, groupId ->
-                        selectedGroupIds[tab] = groupId
-                        updateMenu()
+        lateinit var scrollView: ScrollView
+        scrollView = buildStyleMenuPanelView(
+            context = this,
+            current = current,
+            catalog = catalog,
+            onClose = { removeCandidatePanel() },
+            onProfileChosen = { profile, persistAsDefault, requiresDraft ->
+                val draftText = if (requiresDraft) {
+                    val readResult = AccessibilityActionBridge.tryReadInputDraft()
+                    if (!readResult.success) {
+                        Toast.makeText(this, readResult.message, Toast.LENGTH_SHORT).show()
+                        return@buildStyleMenuPanelView
                     }
-                )
-
+                    readResult.text
+                } else {
+                    null
+                }
+                if (persistAsDefault) {
+                    ReplyStyleSettingsStore.save(this, profile.asDefaultReply())
+                }
+                removeCandidatePanel()
+                triggerCandidateGeneration(profile, draftText)
+            },
+            onLayoutRefreshRequested = {
                 if (scrollView.parent != null) {
-                    val nextParams = anchoredPanelLayoutParams(
+                    // Tab/分组切换后内容高度可能变化，需要刷新布局参数避免裁切。
+                    val nextParams = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
+                        context = this,
                         contentView = scrollView,
-                        panelWidth = panelWidthDp(280),
-                        maxPanelHeight = styleMenuMaxHeight()
+                        buttonLayoutParams = layoutParams,
+                        panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
+                            context = this,
+                            desiredDp = STYLE_MENU_PANEL_WIDTH_DP
+                        ),
+                        maxPanelHeight = OverlayPanelLayoutCalculator.styleMenuMaxHeightPx(this)
                     )
-                    params = nextParams
                     windowManager?.updateViewLayout(scrollView, nextParams)
                 }
             }
-
-            updateMenu()
-            params = anchoredPanelLayoutParams(
-                contentView = scrollView,
-                panelWidth = panelWidthDp(280),
-                maxPanelHeight = styleMenuMaxHeight()
-            )
-            windowManager?.addView(scrollView, params)
-            animatePanelIn(scrollView)
-        }
-
-    }
-
-    private fun renderStyleMenuContent(
-        parent: LinearLayout,
-        tab: StyleMenuTab,
-        current: ReplyStyleProfile,
-        catalog: ReplyStyleCatalogState,
-        playbooksByCategory: Map<String, List<ReplyPlaybookConfig>>,
-        selectedGroupId: String?,
-        onGroupSelected: (StyleMenuTab, String) -> Unit
-    ) {
-        when (tab) {
-            StyleMenuTab.PERSONA -> {
-                renderStyleMenuPage(
-                    parent = parent,
-                    groups = listOf(
-                        StyleMenuGroup(
-                            id = STYLE_MENU_ALL_GROUP_ID,
-                            label = "全部",
-                            items = catalog.personas
-                        )
-                    ),
-                    selectedGroupId = selectedGroupId,
-                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
-                ) { personaConfig ->
-                    val profile = current.copy(
-                        mode = ReplyStyleMode.QUICK_REPLY,
-                        persona = ReplyStyleCatalog.personaFromConfig(personaConfig),
-                        personaConfig = personaConfig
-                    )
-                    menuButton(
-                        personaConfig.label,
-                        profile,
-                        isSelected = personaConfig.id == current.personaConfig.id
-                    )
-                }
-            }
-
-            StyleMenuTab.PLAYBOOK -> {
-                renderStyleMenuPage(
-                    parent = parent,
-                    groups = playbooksByCategory.map { (category, playbooks) ->
-                        StyleMenuGroup(
-                            id = category,
-                            label = category,
-                            items = playbooks
-                        )
-                    },
-                    selectedGroupId = selectedGroupId,
-                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
-                ) { playbook ->
-                    val profile = current.copy(
-                        mode = ReplyStyleMode.PLAYBOOK,
-                        playbookScene = ReplyStyleCatalog.sceneFromConfig(playbook),
-                        playbookConfig = playbook
-                    )
-                    menuButton(
-                        playbook.label,
-                        profile,
-                        persistAsDefault = false,
-                        isSelected = playbook.id == current.playbookConfig.id
-                    )
-                }
-            }
-
-            StyleMenuTab.POLISH -> {
-                renderStyleMenuPage(
-                    parent = parent,
-                    groups = listOf(
-                        StyleMenuGroup(
-                            id = STYLE_MENU_ALL_GROUP_ID,
-                            label = "全部",
-                            items = catalog.polishGoals
-                        )
-                    ),
-                    selectedGroupId = selectedGroupId,
-                    onGroupSelected = { groupId -> onGroupSelected(tab, groupId) }
-                ) { goal ->
-                    val profile = current.copy(
-                        mode = ReplyStyleMode.POLISH,
-                        polishGoal = ReplyStyleCatalog.polishGoalFromConfig(goal),
-                        polishGoalConfig = goal
-                    )
-                    menuButton(
-                        goal.label,
-                        profile,
-                        persistAsDefault = false,
-                        requiresDraft = true,
-                        isSelected = goal.id == current.polishGoalConfig.id
-                    )
-                }
-            }
-        }
-    }
-
-    private fun <T> renderStyleMenuPage(
-        parent: LinearLayout,
-        groups: List<StyleMenuGroup<T>>,
-        selectedGroupId: String?,
-        onGroupSelected: (String) -> Unit,
-        viewFactory: (T) -> View
-    ) {
-        if (groups.isEmpty()) return
-        val activeGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
-        if (groups.size > 1) {
-            addStyleMenuGroupStrip(
-                parent = parent,
-                groups = groups,
-                selectedGroupId = activeGroup.id,
-                onGroupSelected = onGroupSelected
-            )
-        }
-        addCompactGrid(
-            parent = parent,
-            items = activeGroup.items,
-            columns = 4,
-            topMarginDp = if (groups.size > 1) 8 else 10,
-            gapDp = 6,
-            viewFactory = viewFactory
         )
-    }
-
-    private fun <T> addStyleMenuGroupStrip(
-        parent: LinearLayout,
-        groups: List<StyleMenuGroup<T>>,
-        selectedGroupId: String,
-        onGroupSelected: (String) -> Unit
-    ) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        groups.forEachIndexed { index, group ->
-            row.addView(
-                styleMenuGroupButton(group.label, group.id == selectedGroupId) {
-                    onGroupSelected(group.id)
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    if (index > 0) {
-                        marginStart = dp(8)
-                    }
-                }
-            )
-        }
-        parent.addView(
-            HorizontalScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                addView(row)
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
+        candidatePanelView = scrollView
+        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
+            context = this,
+            contentView = scrollView,
+            buttonLayoutParams = layoutParams,
+            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
+                context = this,
+                desiredDp = STYLE_MENU_PANEL_WIDTH_DP
+            ),
+            maxPanelHeight = OverlayPanelLayoutCalculator.styleMenuMaxHeightPx(this)
         )
+        windowManager?.addView(scrollView, params)
+        animatePanelIn(scrollView, dp(8).toFloat())
+
     }
 
     private fun showFailurePanel(
@@ -641,605 +368,42 @@ class OverlayButtonService : Service() {
         removeCandidatePanel()
         val ocrDebugState = OcrDebugStore.state.value
 
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = overlayPanelBackground()
-            elevation = 14f
-        }
-
-        panel.addView(
-            panelHeader("悬浮窗诊断") {
+        val scrollView = buildFailurePanelView(
+            context = this,
+            message = message,
+            debugState = debugState,
+            ocrDebugState = ocrDebugState,
+            onClose = {
                 OverlayDiagnosticsStore.onDone("用户关闭失败提示")
                 removeCandidatePanel()
+            },
+            onOpenAccessibilitySettings = {
+                startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
             }
         )
-
-        panel.addView(
-            TextView(this).apply {
-                text = message
-                textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF3F2B78.toInt())
-                setPadding(0, dp(8), 0, 0)
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        panel.addView(
-            TextView(this).apply {
-                text = buildFailureHint(message, debugState)
-                textSize = 12f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(6), 0, 0)
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        addOcrDiagnosticSection(panel, ocrDebugState)
-
-        if (message.contains("无障碍")) {
-            panel.addView(
-                TextView(this).apply {
-                    text = "打开无障碍设置"
-                    textSize = 13f
-                    typeface = Typeface.DEFAULT_BOLD
-                    gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
-                    background = selectedMenuButtonBackground()
-                    setOnClickListener {
-                        startActivity(
-                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                        )
-                    }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = dp(10)
-                }
-            )
-        }
-
-        val scrollView = ScrollView(this).apply {
-            addView(panel)
-        }
         candidatePanelView = scrollView
-        val params = anchoredPanelLayoutParams(
+        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
+            context = this,
             contentView = scrollView,
-            panelWidth = panelWidthDp(300),
-            panelHeight = dp(500)
+            buttonLayoutParams = layoutParams,
+            panelWidth = OverlayPanelLayoutCalculator.panelWidthPx(
+                context = this,
+                desiredDp = FAILURE_PANEL_WIDTH_DP
+            ),
+            panelHeight = dp(FAILURE_PANEL_HEIGHT_DP)
         )
         windowManager?.addView(scrollView, params)
     }
 
-    private fun addOcrDiagnosticSection(
-        panel: LinearLayout,
-        debugState: OcrDebugState
-    ) {
-        if (debugState.updatedAtMillis <= 0L) return
-        val filterLines = debugState.filterSummaryPreviews.take(5)
-        val messageLines = debugState.extractedMessagePreviews.takeLast(5)
-        if (filterLines.isEmpty() && messageLines.isEmpty()) return
 
-        panel.addView(
-            TextView(this).apply {
-                text = "OCR Filter Summary"
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF3F2B78.toInt())
-                setPadding(0, dp(10), 0, 0)
-            }
-        )
-        panel.addView(
-            TextView(this).apply {
-                text = if (filterLines.isEmpty()) {
-                    "N/A"
-                } else {
-                    filterLines.joinToString(separator = "\n") { "- $it" }
-                }
-                textSize = 11f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(4), 0, 0)
-            }
-        )
 
-        panel.addView(
-            TextView(this).apply {
-                text = "OCR Messages"
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF3F2B78.toInt())
-                setPadding(0, dp(10), 0, 0)
-            }
-        )
-        panel.addView(
-            TextView(this).apply {
-                text = if (messageLines.isEmpty()) {
-                    "N/A"
-                } else {
-                    messageLines.joinToString(separator = "\n") { "- $it" }
-                }
-                textSize = 11f
-                setTextColor(0xFF7A659C.toInt())
-                setPadding(0, dp(4), 0, 0)
-            }
-        )
-    }
-
-    private fun buildFailureHint(
-        message: String,
-        debugState: AccessibilityDebugState
-    ): String {
-        return when {
-            message.contains("无障碍") -> {
-                "请开启 AiReplayMate 无障碍服务后，回到微信单聊页再点气泡。"
-            }
-
-            message.contains("微信") -> {
-                "当前包名：${debugState.packageName.ifBlank { "未知" }}。请切到微信单聊页后重试。"
-            }
-
-            message.contains("单聊") -> {
-                val reason = debugState.chatDetectionReason.ifBlank { "页面特征不足" }
-                "识别原因：$reason。请确认聊天输入框可见。"
-            }
-
-            else -> {
-                "可在首页的悬浮窗诊断里查看完整阶段和最近一次失败摘要。"
-            }
-        }
-    }
-
-    private fun menuHint(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 12f
-            setTextColor(0xFF7A659C.toInt())
-            setPadding(0, dp(5), 0, dp(2))
-        }
-    }
-
-    private fun panelHeader(
-        title: String,
-        actionLabel: String? = null,
-        onAction: (() -> Unit)? = null,
-        onClose: () -> Unit
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                TextView(this@OverlayButtonService).apply {
-                    text = title
-                    textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(0xFF3F2B78.toInt())
-                },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            if (actionLabel != null && onAction != null) {
-                addView(
-                    TextView(this@OverlayButtonService).apply {
-                        text = actionLabel
-                        textSize = 12f
-                        gravity = Gravity.CENTER
-                        setTextColor(0xFF7A659C.toInt())
-                        setPadding(dp(8), dp(4), dp(8), dp(4))
-                        background = softPurpleCardBackground()
-                        setOnClickListener { onAction() }
-                    },
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        rightMargin = dp(8)
-                    }
-                )
-            }
-            addView(
-                TextView(this@OverlayButtonService).apply {
-                    text = "收起"
-                    textSize = 12f
-                    gravity = Gravity.CENTER
-                    setTextColor(0xFF7A659C.toInt())
-                    setPadding(dp(8), dp(4), dp(8), dp(4))
-                    background = softPurpleCardBackground()
-                    setOnClickListener { onClose() }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
-        }
-    }
-
-    private fun candidatePanelHeader(
-        title: String,
-        modeLabel: String,
-        subtitle: String,
-        onAction: () -> Unit,
-        onClose: () -> Unit
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                LinearLayout(this@OverlayButtonService).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(
-                        LinearLayout(this@OverlayButtonService).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            gravity = Gravity.CENTER_VERTICAL
-                            addView(
-                                TextView(this@OverlayButtonService).apply {
-                                    text = title
-                                    textSize = 14f
-                                    typeface = Typeface.DEFAULT_BOLD
-                                    setTextColor(0xFF3F2B78.toInt())
-                                    maxLines = 1
-                                    ellipsize = TextUtils.TruncateAt.END
-                                },
-                                LinearLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                                    ViewGroup.LayoutParams.WRAP_CONTENT
-                                )
-                            )
-                            if (modeLabel.isNotBlank()) {
-                                addView(
-                                    TextView(this@OverlayButtonService).apply {
-                                        text = modeLabel
-                                        textSize = 11f
-                                        setTextColor(0xFF7A659C.toInt())
-                                        maxLines = 1
-                                        ellipsize = TextUtils.TruncateAt.END
-                                    },
-                                    LinearLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT
-                                    ).apply {
-                                        marginStart = dp(4)
-                                    }
-                                )
-                            }
-                        }
-                    )
-                    addView(
-                        TextView(this@OverlayButtonService).apply {
-                            text = subtitle
-                            textSize = 11f
-                            setTextColor(0xFF7A659C.toInt())
-                            setPadding(0, dp(2), 0, 0)
-                            maxLines = 1
-                            ellipsize = TextUtils.TruncateAt.END
-                        }
-                    )
-                },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            addView(
-                TextView(this@OverlayButtonService).apply {
-                    text = "↻"
-                    textSize = 14f
-                    gravity = Gravity.CENTER
-                    setTextColor(0xFF5B3DC8.toInt())
-                    minWidth = dp(32)
-                    minHeight = dp(28)
-                    background = candidatePanelIconButtonBackground()
-                    applyPressedFeedback(this)
-                    setOnClickListener { onAction() }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    marginStart = dp(8)
-                }
-            )
-            addView(
-                TextView(this@OverlayButtonService).apply {
-                    text = "×"
-                    textSize = 16f
-                    gravity = Gravity.CENTER
-                    setTextColor(0xFF5B3DC8.toInt())
-                    minWidth = dp(32)
-                    minHeight = dp(28)
-                    background = candidatePanelIconButtonBackground()
-                    applyPressedFeedback(this)
-                    setOnClickListener { onClose() }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    marginStart = dp(5)
-                }
-            )
-        }
-    }
-
-    private fun styleMenuHintRow(
-        tab: StyleMenuTab,
-        current: ReplyStyleProfile,
-        onClose: () -> Unit
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                LinearLayout(this@OverlayButtonService).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(
-                        TextView(this@OverlayButtonService).apply {
-                            tag = STYLE_MENU_TITLE_TAG
-                            text = styleMenuSelectedLabel(tab, current)
-                            textSize = 12f
-                            typeface = Typeface.DEFAULT_BOLD
-                            setTextColor(0xFF5B3DC8.toInt())
-                        }
-                    )
-                    addView(
-                        TextView(this@OverlayButtonService).apply {
-                            tag = STYLE_MENU_HINT_TAG
-                            text = styleMenuSelectionHint(tab, current)
-                            textSize = 10.5f
-                            maxLines = 1
-                            ellipsize = TextUtils.TruncateAt.END
-                            setTextColor(0xFF8B7AA3.toInt())
-                        },
-                        LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            topMargin = dp(1)
-                        }
-                    )
-                },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            addView(
-                TextView(this@OverlayButtonService).apply {
-                    text = "×"
-                    textSize = 15f
-                    gravity = Gravity.CENTER
-                    setTextColor(0xFF8B7AA3.toInt())
-                    setPadding(dp(6), 0, dp(6), 0)
-                    minWidth = dp(24)
-                    minHeight = dp(20)
-                    applyPressedFeedback(this)
-                    setOnClickListener { onClose() }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
-        }
-    }
-
-    private fun updateStyleMenuHintRow(
-        row: LinearLayout,
-        tab: StyleMenuTab,
-        current: ReplyStyleProfile
-    ) {
-        val titleView = row.findViewWithTag<TextView>(STYLE_MENU_TITLE_TAG)
-        val hintView = row.findViewWithTag<TextView>(STYLE_MENU_HINT_TAG)
-        titleView?.text = styleMenuSelectedLabel(tab, current)
-        hintView?.text = styleMenuSelectionHint(tab, current)
-    }
-
-    private fun styleMenuSelectedLabel(
-        tab: StyleMenuTab,
-        current: ReplyStyleProfile
-    ): String {
-        return when (tab) {
-            StyleMenuTab.PERSONA -> current.personaConfig.label
-            StyleMenuTab.PLAYBOOK -> current.playbookConfig.label
-            StyleMenuTab.POLISH -> current.polishGoalConfig.label
-        }
-    }
-
-    private fun styleMenuSelectionHint(
-        tab: StyleMenuTab,
-        current: ReplyStyleProfile
-    ): String {
-        return when (tab) {
-            StyleMenuTab.PERSONA -> "角色·${current.personaConfig.label}"
-            StyleMenuTab.PLAYBOOK -> "话术·${current.playbookConfig.label}"
-            StyleMenuTab.POLISH -> "润色·${current.polishGoalConfig.label}"
-        }
-    }
-
-    private fun menuSectionLabel(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFF9B6A1D.toInt())
-            setPadding(0, dp(10), 0, dp(2))
-        }
-    }
-
-    private fun menuSubsectionLabel(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFF7A659C.toInt())
-            setPadding(0, dp(8), 0, 0)
-        }
-    }
-
-    private fun styleMenuTabButton(
-        label: String,
-        isSelected: Boolean,
-        onClick: () -> Unit
-    ): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 12f
-            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF3F2B78.toInt())
-            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            gravity = Gravity.CENTER
-            minHeight = dp(30)
-            setPadding(dp(5), dp(4), dp(5), dp(4))
-            elevation = if (isSelected) dp(1).toFloat() else 0f
-            background = if (isSelected) {
-                styleMenuTabSelectedBackground()
-            } else {
-                styleMenuTabIdleBackground()
-            }
-            applyPressedFeedback(this)
-            setOnClickListener { onClick() }
-        }
-    }
-
-    private fun styleMenuGroupButton(
-        label: String,
-        isSelected: Boolean,
-        onClick: () -> Unit
-    ): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 10f
-            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF9488A0.toInt())
-            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            gravity = Gravity.CENTER
-            minHeight = dp(22)
-            setPadding(dp(8), dp(2), dp(8), dp(3))
-            background = if (isSelected) {
-                selectedStyleMenuGroupBackground()
-            } else {
-                styleMenuGroupBackground()
-            }
-            applyPressedFeedback(this)
-            setOnClickListener { onClick() }
-        }
-    }
-
-    private fun menuButton(
-        label: String,
-        profile: ReplyStyleProfile,
-        persistAsDefault: Boolean = true,
-        requiresDraft: Boolean = false,
-        isSelected: Boolean = false
-    ): TextView {
-        return TextView(this).apply {
-            text = if (isSelected) "· $label" else label
-            textSize = 10.5f
-            setTextColor(if (isSelected) 0xFF5B3DC8.toInt() else 0xFF3F2B78.toInt())
-            typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            gravity = Gravity.CENTER
-            minHeight = dp(33)
-            setPadding(dp(3), dp(5), dp(3), dp(5))
-            background = if (isSelected) {
-                compactSelectedMenuButtonBackground()
-            } else {
-                compactMenuButtonBackground()
-            }
-            applyPressedFeedback(this)
-            setOnClickListener {
-                val draftText = if (requiresDraft) {
-                    val readResult = AccessibilityActionBridge.tryReadInputDraft()
-                    if (!readResult.success) {
-                        Toast.makeText(this@OverlayButtonService, readResult.message, Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-                    readResult.text
-                } else {
-                    null
-                }
-                if (persistAsDefault) {
-                    ReplyStyleSettingsStore.save(this@OverlayButtonService, profile.asDefaultReply())
-                }
-                removeCandidatePanel()
-                triggerCandidateGeneration(profile, draftText)
-            }
-        }
-    }
-
-    private fun candidateView(candidate: OverlayCandidate): View {
-        return TextView(this).apply {
-            text = candidate.text
-            textSize = 14f
-            setTextColor(0xFF3F2B78.toInt())
-            minLines = 2
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = candidateReplyBackground()
-            applyPressedFeedback(this)
-            setOnClickListener {
-                val result = AccessibilityActionBridge.tryAutofill(candidate.text)
-                OverlayDiagnosticsStore.onAutofill(result.message)
-                Toast.makeText(this@OverlayButtonService, result.message, Toast.LENGTH_SHORT).show()
-                if (result.success) {
-                    OverlayDiagnosticsStore.onDone("候选已填入输入框，等待用户手动发送")
-                    removeCandidatePanel()
-                } else {
-                    OverlayDiagnosticsStore.onFailed(result.message)
-                }
-            }
-        }
-    }
-
-    private fun animatePanelIn(view: View) {
-        view.alpha = 0f
-        view.scaleX = 0.96f
-        view.scaleY = 0.96f
-        view.translationY = dp(8).toFloat()
-        view.animate()
-            .alpha(1f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .translationY(0f)
-            .setDuration(190L)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
-    }
-
-    private fun applyPressedFeedback(view: View) {
-        view.setOnTouchListener { target, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    target.animate()
-                        .scaleX(0.98f)
-                        .scaleY(0.98f)
-                        .alpha(0.86f)
-                        .setDuration(70L)
-                        .start()
-                }
-
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    target.animate()
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .alpha(1f)
-                        .setDuration(110L)
-                        .start()
-                }
-            }
-            false
-        }
-    }
 
     private fun removeCandidatePanel() {
+        // 进度点动画绑定在面板上，移除面板前先停掉动画避免泄漏。
         stopProgressIndicatorAnimation()
         candidatePanelView?.let { view ->
             windowManager?.removeView(view)
@@ -1251,203 +415,37 @@ class OverlayButtonService : Service() {
 
     private fun showProgressPanel(status: String) {
         progressStatusView?.let { statusView ->
+            // 如果进度面板已存在，只更新文案，避免反复 remove/add 造成闪烁。
             statusView.text = status
             return
         }
 
         removeCandidatePanel()
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = overlayPanelBackground()
-            elevation = 14f
-        }
-        panel.addView(
-            TextView(this).apply {
-                text = "AI 正在工作"
-                textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(0xFF3F2B78.toInt())
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-        val indicator = createProgressIndicator()
-        panel.addView(
-            indicator,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
-        )
-        val statusView = TextView(this).apply {
-            text = status
-            textSize = 13f
-            setTextColor(0xFF7A659C.toInt())
-            setPadding(0, dp(8), 0, 0)
-        }
-        panel.addView(
-            statusView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+        val progressViews = buildProgressPanelView(
+            context = this,
+            status = status
         )
 
-        progressStatusView = statusView
-        progressIndicatorView = indicator
-        candidatePanelView = panel
-        val params = anchoredPanelLayoutParams(
-            contentView = panel,
-            panelWidth = dp(248)
+        progressStatusView = progressViews.statusView
+        progressIndicatorView = progressViews.indicator
+        candidatePanelView = progressViews.panel
+        val params = OverlayPanelLayoutCalculator.anchoredPanelLayoutParams(
+            context = this,
+            contentView = progressViews.panel,
+            buttonLayoutParams = layoutParams,
+            panelWidth = dp(PROGRESS_PANEL_WIDTH_DP)
         )
-        windowManager?.addView(panel, params)
-        startProgressIndicatorAnimation(indicator)
+        windowManager?.addView(progressViews.panel, params)
+        startProgressIndicatorAnimation(progressViews.indicator)
     }
 
-    private fun <T> addCompactGrid(
-        parent: LinearLayout,
-        items: List<T>,
-        columns: Int,
-        topMarginDp: Int,
-        gapDp: Int = 8,
-        viewFactory: (T) -> View
-    ) {
-        if (items.isEmpty()) return
-        val horizontalGap = dp(gapDp)
-        val verticalGap = dp(gapDp)
-        items.chunked(columns).forEachIndexed { rowIndex, rowItems ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
-            rowItems.forEachIndexed { itemIndex, item ->
-                row.addView(
-                    viewFactory(item),
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        if (itemIndex > 0) {
-                            marginStart = horizontalGap
-                        }
-                    }
-                )
-            }
-            repeat(columns - rowItems.size) {
-                row.addView(
-                    View(this),
-                    LinearLayout.LayoutParams(0, 0, 1f).apply {
-                        if (row.childCount > 0) {
-                            marginStart = horizontalGap
-                        }
-                    }
-                )
-            }
-            parent.addView(
-                row,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = if (rowIndex == 0) dp(topMarginDp) else verticalGap
-                }
-            )
-        }
-    }
-
-    private fun addCandidateStack(
-        parent: LinearLayout,
-        items: List<OverlayCandidate>,
-        topMarginDp: Int
-    ) {
-        if (items.isEmpty()) return
-        items.forEachIndexed { index, candidate ->
-            parent.addView(
-                candidateView(candidate),
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = if (index == 0) dp(topMarginDp) else dp(8)
-                }
-            )
-        }
-    }
-
-    private fun anchoredPanelLayoutParams(
-        contentView: View,
-        panelWidth: Int,
-        panelHeight: Int = WindowManager.LayoutParams.WRAP_CONTENT,
-        maxPanelHeight: Int? = null
-    ): WindowManager.LayoutParams {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
-        val horizontalMargin = dp(16)
-        val verticalMargin = dp(16)
-        val gap = dp(8)
-        val buttonParams = layoutParams
-        val bubbleX = buttonParams?.x ?: horizontalMargin
-        val bubbleY = buttonParams?.y ?: dp(220)
-        val bubbleWidth = buttonParams?.width?.takeIf { it > 0 } ?: dp(44)
-        val bubbleHeight = buttonParams?.height?.takeIf { it > 0 } ?: dp(44)
-
-        val actualPanelWidth = panelWidth.coerceAtMost(screenWidth - horizontalMargin * 2)
-        val panelX = horizontalMargin
-        val measuredHeight = resolvePanelHeight(contentView, actualPanelWidth, panelHeight)
-        val actualPanelHeight = maxPanelHeight
-            ?.let { measuredHeight.coerceAtMost(it) }
-            ?: panelHeight
-
-        val belowY = bubbleY + bubbleHeight + gap
-        val layoutHeight = if (actualPanelHeight > 0) actualPanelHeight else measuredHeight
-        val aboveY = bubbleY - layoutHeight - gap
-        val panelY = if (belowY + layoutHeight + verticalMargin <= screenHeight) {
-            belowY
-        } else {
-            aboveY.coerceAtLeast(verticalMargin)
-        }
-
-        return WindowManager.LayoutParams(
-            actualPanelWidth,
-            actualPanelHeight,
-            overlayWindowType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = panelX
-            y = panelY
-        }
-    }
-
-    private fun resolvePanelHeight(
-        contentView: View,
-        panelWidth: Int,
-        panelHeight: Int
-    ): Int {
-        if (panelHeight > 0) return panelHeight
-        val widthSpec = View.MeasureSpec.makeMeasureSpec(panelWidth, View.MeasureSpec.EXACTLY)
-        val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        contentView.measure(widthSpec, heightSpec)
-        return contentView.measuredHeight
-    }
-
-    private fun panelWidthDp(desiredDp: Int): Int {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val horizontalMargin = dp(16)
-        return minOf(dp(desiredDp), screenWidth - horizontalMargin * 2)
-    }
-
-    private fun styleMenuMaxHeight(): Int {
-        return (resources.displayMetrics.heightPixels * 0.38f).toInt()
-    }
+    // ===== 动画与交互状态 =====
 
     private fun updateFloatingButtonLoading(isLoading: Boolean) {
         val button = floatingButtonView ?: return
-        button.background = floatingButtonBackground(isLoading)
+        button.background = floatingButtonBackgroundDrawable()
         if (isLoading) {
-            stopFloatingIdleAnimation()
+            floatingBubbleController.stopFloatingIdleAnimation()
             startFloatingButtonAnimation(button)
         } else {
             stopFloatingButtonAnimation()
@@ -1455,467 +453,41 @@ class OverlayButtonService : Service() {
             button.scaleX = 1f
             button.scaleY = 1f
             button.translationZ = 0f
-            if (!isDocked) {
-                startFloatingIdleAnimation()
-            }
-        }
-    }
-
-    private fun List<ReplyCandidate>.toOverlayCandidates(): List<OverlayCandidate> {
-        return map { candidate ->
-            OverlayCandidate(
-                id = candidate.id,
-                text = candidate.text
-            )
-        }
-    }
-
-    private fun RealReplySessionPhase.toOverlayPhase(): OverlayRunPhase {
-        return when (this) {
-            RealReplySessionPhase.VALIDATING -> OverlayRunPhase.VALIDATING
-            RealReplySessionPhase.BUILDING_CONTEXT -> OverlayRunPhase.BUILDING_CONTEXT
-            RealReplySessionPhase.OCR_FALLBACK -> OverlayRunPhase.OCR_FALLBACK
-            RealReplySessionPhase.REQUESTING_LLM -> OverlayRunPhase.REQUESTING_LLM
-            RealReplySessionPhase.LOCAL_FALLBACK -> OverlayRunPhase.LOCAL_FALLBACK
-        }
-    }
-
-    private fun roundedBackground(
-        color: Int,
-        radius: Float
-    ): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(color)
-            cornerRadius = radius
-        }
-    }
-
-    private fun floatingButtonBackground(isLoading: Boolean): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.TRANSPARENT)
-        }
-    }
-
-    private fun createFloatingButtonIcon(): View {
-        return FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setPadding(dp(3), dp(3), dp(3), dp(3))
-            addView(
-                ImageView(this@OverlayButtonService).apply {
-                    setImageResource(R.drawable.floating_avatar_idle)
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    adjustViewBounds = false
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    floatingAvatarView = this
-                },
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    Gravity.CENTER
-                )
-            )
-        }
-    }
-
-    private fun dockFloatingButton(
-        view: View,
-        params: WindowManager.LayoutParams
-    ) {
-        if (isGeneratingCandidates) return
-
-        stopFloatingIdleAnimation()
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
-        val visibleWidth = dp(DOCKED_VISIBLE_WIDTH_DP)
-        val verticalMargin = dp(12)
-        val centerX = params.x + params.width / 2
-        val side = if (centerX < screenWidth / 2) DockedSide.LEFT else DockedSide.RIGHT
-        val targetX = when (side) {
-            DockedSide.LEFT -> -(params.width - visibleWidth)
-            DockedSide.RIGHT -> screenWidth - visibleWidth
-        }
-        val targetY = params.y.coerceIn(
-            verticalMargin,
-            (screenHeight - params.height - verticalMargin).coerceAtLeast(verticalMargin)
-        )
-
-        dockAnimator?.cancel()
-        dockAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = DOCK_ANIMATION_DURATION_MS
-            interpolator = DecelerateInterpolator()
-            val startX = params.x
-            val startY = params.y
-            var cancelled = false
-            addUpdateListener { animator ->
-                val fraction = animator.animatedValue as Float
-                params.x = (startX + (targetX - startX) * fraction).toInt()
-                params.y = (startY + (targetY - startY) * fraction).toInt()
-                windowManager?.updateViewLayout(view, params)
-            }
-            addListener(
-                object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        if (cancelled) return
-                        isDocked = true
-                        dockedSide = side
-                        floatingAvatarView?.setImageResource(
-                            when (side) {
-                                DockedSide.LEFT -> R.drawable.floating_avatar_peek_left
-                                DockedSide.RIGHT -> R.drawable.floating_avatar_wink_right
-                            }
-                        )
-                        dockAnimator = null
-                    }
-
-                    override fun onAnimationCancel(animation: Animator) {
-                        cancelled = true
-                        dockAnimator = null
-                    }
-                }
-            )
-            start()
-        }
-    }
-
-    private fun undockFloatingAvatar() {
-        if (!isDocked && dockedSide == null) return
-        isDocked = false
-        dockedSide = null
-        floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
-        if (!isGeneratingCandidates) {
-            startFloatingIdleAnimation()
-        }
-    }
-
-    private fun startFloatingIdleAnimation() {
-        if (isGeneratingCandidates || isDocked || idleBlinkRunnable != null) return
-        val avatar = floatingAvatarView ?: return
-        val delay = (IDLE_BLINK_MIN_DELAY_MS..IDLE_BLINK_MAX_DELAY_MS).random()
-        idleBlinkRunnable = Runnable {
-            idleBlinkRunnable = null
-            if (!isGeneratingCandidates && !isDocked && avatar.parent != null) {
-                avatar.setImageResource(R.drawable.floating_avatar_wink_right)
-                floatingIdleAnimator = AnimatorSet().apply {
-                    val blink = ObjectAnimator.ofFloat(avatar, View.SCALE_Y, 1f, 0.96f, 1f).apply {
-                        duration = IDLE_BLINK_DURATION_MS
-                    }
-                    val breatheX = ObjectAnimator.ofFloat(avatar, View.SCALE_X, 1f, 1.025f, 1f).apply {
-                        duration = IDLE_BLINK_DURATION_MS
-                    }
-                    playTogether(blink, breatheX)
-                    addListener(
-                        object : android.animation.AnimatorListenerAdapter() {
-                            override fun onAnimationEnd(animation: Animator) {
-                                avatar.setImageResource(R.drawable.floating_avatar_idle)
-                                floatingIdleAnimator = null
-                                startFloatingIdleAnimation()
-                            }
-
-                            override fun onAnimationCancel(animation: Animator) {
-                                avatar.setImageResource(R.drawable.floating_avatar_idle)
-                                floatingIdleAnimator = null
-                            }
-                        }
-                    )
-                    start()
-                }
-            }
-        }.also { mainHandler.postDelayed(it, delay) }
-    }
-
-    private fun stopFloatingIdleAnimation() {
-        idleBlinkRunnable?.let(mainHandler::removeCallbacks)
-        idleBlinkRunnable = null
-        floatingIdleAnimator?.cancel()
-        floatingIdleAnimator = null
-        if (!isDocked) {
-            floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
-        }
-        floatingAvatarView?.scaleX = 1f
-        floatingAvatarView?.scaleY = 1f
-    }
-
-    private fun overlayPanelBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xF2F2ECFF.toInt(), 0xEEE5D9FF.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(22).toFloat()
-            setStroke(dp(1), 0x33A886FF)
-        }
-    }
-
-    private fun softPurpleCardBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFFF3EEFF.toInt(), 0xFFE9E0FF.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setStroke(dp(1), 0x26A07CFF)
-        }
-    }
-
-    private fun candidatePanelBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFEFFFCFF.toInt(), 0xFEF5EEFF.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(20).toFloat()
-            setStroke(dp(1), 0x2AA886FF)
-        }
-    }
-
-    private fun candidatePanelIconButtonBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0x167A57E8)
-            cornerRadius = dp(14).toFloat()
-            setStroke(dp(1), 0x2A7A57E8)
-        }
-    }
-
-    private fun candidateReplyBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFFF3EEFF.toInt(), 0xFFEDE5FF.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(14).toFloat()
-            setStroke(dp(1), 0x2AA07CFF)
-        }
-    }
-
-    private fun styleMenuPanelBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFEFFFCFF.toInt(), 0xFEF8F4FF.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(20).toFloat()
-            setStroke(dp(1), 0x26A886FF)
-        }
-    }
-
-    private fun styleMenuSegmentBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0xFFEFEAF8.toInt())
-            cornerRadius = dp(12).toFloat()
-            setStroke(dp(1), 0x12A886FF)
-        }
-    }
-
-    private fun styleMenuTabIdleBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.TRANSPARENT)
-            cornerRadius = dp(11).toFloat()
-        }
-    }
-
-    private fun styleMenuTabSelectedBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0x247A57E8)
-            cornerRadius = dp(10).toFloat()
-            setStroke(dp(1), 0x337A57E8)
-        }
-    }
-
-    private fun compactMenuButtonBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0xF2FFFFFF.toInt())
-            cornerRadius = dp(11).toFloat()
-            setStroke(dp(1), 0x18A07CFF)
-        }
-    }
-
-    private fun compactSelectedMenuButtonBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0x1A7A57E8)
-            cornerRadius = dp(11).toFloat()
-            setStroke(dp(1), 0x807A57E8.toInt())
-        }
-    }
-
-    private fun styleMenuGroupBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0x00FFFFFF)
-            cornerRadius = dp(9).toFloat()
-            setStroke(dp(1), 0x0D7A57E8)
-        }
-    }
-
-    private fun selectedStyleMenuGroupBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(0x147A57E8)
-            cornerRadius = dp(9).toFloat()
-            setStroke(dp(1), 0x337A57E8)
-        }
-    }
-
-    private fun selectedMenuButtonBackground(): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0xFF7A57E8.toInt(), 0xFF5B3DC8.toInt())
-        ).apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setStroke(dp(1), 0x667A57E8)
-        }
-    }
-
-    private fun createProgressIndicator(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            repeat(3) { index ->
-                addView(
-                    View(this@OverlayButtonService).apply {
-                        background = roundedBackground(
-                            when (index) {
-                                1 -> 0xFFD7C7FF.toInt()
-                                else -> 0xFF8E63FF.toInt()
-                            },
-                            dp(5).toFloat()
-                        )
-                    },
-                    LinearLayout.LayoutParams(dp(10), dp(10)).apply {
-                        if (index > 0) {
-                            marginStart = dp(8)
-                        }
-                    }
-                )
+            if (!floatingBubbleController.isDocked) {
+                floatingBubbleController.startFloatingIdleAnimation()
             }
         }
     }
 
     private fun startFloatingButtonAnimation(button: View) {
-        if (floatingButtonAnimator != null) return
-        val scaleX = ObjectAnimator.ofFloat(button, View.SCALE_X, 1f, 1.08f, 1f).apply {
-            duration = 1250L
-            repeatCount = ObjectAnimator.INFINITE
-        }
-        val scaleY = ObjectAnimator.ofFloat(button, View.SCALE_Y, 1f, 1.08f, 1f).apply {
-            duration = 1250L
-            repeatCount = ObjectAnimator.INFINITE
-        }
-        val alpha = ObjectAnimator.ofFloat(button, View.ALPHA, 0.94f, 0.84f, 0.94f).apply {
-            duration = 1250L
-            repeatCount = ObjectAnimator.INFINITE
-        }
-        val lift = ObjectAnimator.ofFloat(button, View.TRANSLATION_Z, 0f, dp(4).toFloat(), 0f).apply {
-            duration = 1250L
-            repeatCount = ObjectAnimator.INFINITE
-        }
-        floatingButtonAnimator = AnimatorSet().apply {
-            playTogether(scaleX, scaleY, alpha, lift)
-            start()
+        if (::panelAnimationController.isInitialized) {
+            panelAnimationController.startFloatingButtonAnimation(button)
         }
     }
 
     private fun stopFloatingButtonAnimation() {
-        floatingButtonAnimator?.cancel()
-        floatingButtonAnimator = null
-        dockAnimator?.cancel()
-        dockAnimator = null
-        stopFloatingIdleAnimation()
+        if (::panelAnimationController.isInitialized) {
+            panelAnimationController.stopFloatingButtonAnimation()
+        }
+        if (::floatingBubbleController.isInitialized) {
+            floatingBubbleController.cancelDockAndIdle()
+        }
     }
 
     private fun startProgressIndicatorAnimation(indicator: LinearLayout) {
-        if (progressIndicatorAnimators.isNotEmpty()) return
-        repeat(indicator.childCount) { index ->
-            val dot = indicator.getChildAt(index)
-            val scaleX = ObjectAnimator.ofFloat(dot, View.SCALE_X, 0.8f, 1.28f, 0.8f).apply {
-                duration = 900L
-                startDelay = index * 130L
-                repeatCount = ObjectAnimator.INFINITE
-            }
-            val scaleY = ObjectAnimator.ofFloat(dot, View.SCALE_Y, 0.8f, 1.28f, 0.8f).apply {
-                duration = 900L
-                startDelay = index * 130L
-                repeatCount = ObjectAnimator.INFINITE
-            }
-            val alpha = ObjectAnimator.ofFloat(dot, View.ALPHA, 0.35f, 1f, 0.35f).apply {
-                duration = 900L
-                startDelay = index * 130L
-                repeatCount = ObjectAnimator.INFINITE
-            }
-            progressIndicatorAnimators += listOf(scaleX, scaleY, alpha)
+        if (::panelAnimationController.isInitialized) {
+            panelAnimationController.startProgressIndicatorAnimation(indicator)
         }
-        progressIndicatorAnimators.forEach { it.start() }
     }
 
     private fun stopProgressIndicatorAnimation() {
-        progressIndicatorAnimators.forEach { it.cancel() }
-        progressIndicatorAnimators.clear()
+        if (::panelAnimationController.isInitialized) {
+            panelAnimationController.stopProgressIndicatorAnimation()
+        }
     }
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
     }
 
-    private fun ReplyStyleProfile.asDefaultReply(): ReplyStyleProfile {
-        return copy(mode = ReplyStyleMode.QUICK_REPLY)
-    }
-
-    private fun overlayWindowType(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-    }
-
-    private enum class StyleMenuTab(
-        val label: String,
-        val hint: String
-    ) {
-        PERSONA("角色", "选择全局角色"),
-        PLAYBOOK("话术", "生成对应场景话术"),
-        POLISH("润色", "润色聊天框草稿")
-    }
-
-    private enum class DockedSide {
-        LEFT,
-        RIGHT
-    }
-
-    private data class StyleMenuGroup<T>(
-        val id: String,
-        val label: String,
-        val items: List<T>
-    )
-
-    private companion object {
-        const val DRAG_SLOP = 8
-        const val LONG_PRESS_TIMEOUT_MS = 520L
-        const val STYLE_MENU_ALL_GROUP_ID = "all"
-        const val STYLE_MENU_TITLE_TAG = "style_menu_title"
-        const val STYLE_MENU_HINT_TAG = "style_menu_hint"
-        const val FLOATING_BUTTON_SIZE_DP = 56
-        const val DOCKED_VISIBLE_WIDTH_DP = 44
-        const val DOCK_ANIMATION_DURATION_MS = 220L
-        const val IDLE_BLINK_MIN_DELAY_MS = 2_000L
-        const val IDLE_BLINK_MAX_DELAY_MS = 4_000L
-        const val IDLE_BLINK_DURATION_MS = 360L
-    }
-
-    private data class OverlayCandidate(
-        val id: String,
-        val text: String
-    )
 }

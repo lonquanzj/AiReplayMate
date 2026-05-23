@@ -29,6 +29,8 @@
 当前落地状态：
 
 - V1.0 主链路已在当前自用手机上跑通，最近一次稳定 smoke 为 7 条用例通过。
+- 2026-05-23 再次回归：稳定 smoke 7/7 通过，`:app:testDebugUnitTest` 通过。
+- 同期两个 Diagnostic Only 的 Activity 探针在当前 MIUI 设备失败（后台拉起 Activity 限制），不作为 merge gate。
 - OCR 兜底已从 MediaProjection 切换为无障碍截图，避免频繁截图授权和后续帧模糊问题。
 - OCR 诊断已能展示截图来源、帧质量、过滤摘要、聚合消息和 Debug 调试图路径。
 - OCR 调试图仅 Debug 构建保存有限数量，Release / 非调试构建不保存。

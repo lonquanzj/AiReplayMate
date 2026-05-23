@@ -132,6 +132,20 @@ android/app/src/main/java/com/lonquanzj/aireplaymate
 - [RealReplySessionRunner.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/session/RealReplySessionRunner.kt:17)
 - [ReplyAccessibilityService.kt](android/app/src/main/java/com/lonquanzj/aireplaymate/accessibility/ReplyAccessibilityService.kt:1)
 
+### Overlay 拆分进度（最近完成）
+
+为降低 `OverlayButtonService` 体量并提升可维护性，最近已把 overlay 细节拆分为独立组件：
+
+- `OverlaySessionOrchestrator`：封装会话执行与阶段文案映射
+- `OverlayFloatingBubbleController`：封装拖拽、长按、吸边、idle 动画状态
+- `OverlayPanelLayoutCalculator`：封装面板尺寸与锚点定位计算
+- `OverlayPanelAnimationController`：封装悬浮球与进度点动画生命周期
+- `OverlayFloatingButtonViewFactory`：封装悬浮按钮 view 与 layout params 构建
+- `OverlayCandidatePanel` / `OverlayStyleMenuPanel` / `OverlayFailurePanel` / `OverlayProgressPanel`：封装各面板 UI 构建
+- `OverlayUiDimens` / `OverlayUiEffects` / `OverlayUiStyles` / `OverlayPanelUiTokens`：封装共享尺寸、动效、样式与 token
+
+当前 `OverlayButtonService` 主要保留生命周期与流程编排职责，并已补充分段注释和调用链索引，便于快速阅读。
+
 ## 技术栈
 
 - Kotlin
@@ -236,6 +250,12 @@ Gradle 模块名是 `:app`，源码目录映射到 `android/app`；不要使用 
 | `overlay_diagnostics_store_tracks_flow_and_failure_state` | 悬浮链路诊断状态迁移、候选阶段、失败态与 steps |
 | `diagnostic_log_store_persists_sanitizes_and_deduplicates_entries` | 诊断日志持久化、URL 脱敏、去重、快照格式 |
 | `ocr_debug_store_tracks_attempt_result_and_message_previews` | OCR 诊断状态覆盖、步骤记录、消息预览格式 |
+
+最近一次本地回归（2026-05-23）结果：
+
+- `device smoke: stable suite` 通过（7/7）
+- `:app:testDebugUnitTest` 通过
+- `device diagnostic: activity launch probe (diagnostic only)` 与 `device diagnostic: ui entry probe (diagnostic only)` 在当前 MIUI 设备上失败（后台拉起 Activity 限制，诊断任务不作为 merge gate）
 
 脚本 summary 额外提供：
 

@@ -2,4 +2,24 @@
 <resources>
     <string name="app_name">AiChat</string>
     <string name="accessibility_service_description">用于读取聊天界面并辅助填入回复内容</string>
+    <string name="overlay_icon_close">×</string>
+    <string name="overlay_icon_refresh">↻</string>
+    <string name="overlay_label_all">全部</string>
+    <string name="overlay_prefix_persona">角色·%1$s</string>
+    <string name="overlay_prefix_playbook">话术·%1$s</string>
+    <string name="overlay_prefix_polish">润色·%1$s</string>
+    <string name="overlay_selected_item">· %1$s</string>
+    <string name="overlay_failure_title">悬浮窗诊断</string>
+    <string name="overlay_collapse">收起</string>
+    <string name="overlay_open_accessibility_settings">打开无障碍设置</string>
+    <string name="overlay_ocr_filter_summary">OCR Filter Summary</string>
+    <string name="overlay_ocr_messages">OCR Messages</string>
+    <string name="overlay_na">N/A</string>
+    <string name="overlay_unknown">未知</string>
+    <string name="overlay_failure_reason_insufficient_feature">页面特征不足</string>
+    <string name="overlay_failure_hint_accessibility">请开启 AiReplayMate 无障碍服务后，回到微信单聊页再点气泡。</string>
+    <string name="overlay_failure_hint_wechat">当前包名：%1$s。请切到微信单聊页后重试。</string>
+    <string name="overlay_failure_hint_chat">识别原因：%1$s。请确认聊天输入框可见。</string>
+    <string name="overlay_failure_hint_generic">可在首页的悬浮窗诊断里查看完整阶段和最近一次失败摘要。</string>
+    <string name="overlay_progress_title">AI 正在工作</string>
 </resources>
