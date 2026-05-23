@@ -9,6 +9,7 @@ internal data class NodeText(
     val className: String,
     val isEditable: Boolean,
     val isClickable: Boolean,
+    val isImagePlaceholder: Boolean = false,
     val left: Int,
     val top: Int,
     val right: Int,
@@ -20,7 +21,7 @@ internal data class NodeText(
     val isLikelyControl: Boolean =
         isEditable ||
             className.contains("Button", ignoreCase = true) ||
-            className.contains("ImageView", ignoreCase = true) ||
+            (className.contains("ImageView", ignoreCase = true) && !isImagePlaceholder) ||
             text in blockedUiTexts ||
             blockedUiTextFragments.any { text.contains(it) }
 }
@@ -29,6 +30,8 @@ internal enum class NodeTextSource {
     TEXT,
     CONTENT_DESCRIPTION
 }
+
+internal const val IMAGE_PLACEHOLDER_TEXT = "[图片]"
 
 internal class WindowNodeSignals {
     val collectedTexts = mutableListOf<NodeText>()
@@ -115,7 +118,8 @@ private fun nodeTextFrom(
     source: NodeTextSource,
     className: String,
     node: AccessibilityNodeInfo,
-    bounds: Rect
+    bounds: Rect,
+    isImagePlaceholder: Boolean = false
 ): NodeText {
     return NodeText(
         text = text,
@@ -123,9 +127,11 @@ private fun nodeTextFrom(
         className = className,
         isEditable = node.isEditable,
         isClickable = node.isClickable,
+        isImagePlaceholder = isImagePlaceholder,
         left = bounds.left,
         top = bounds.top,
         right = bounds.right,
         bottom = bounds.bottom
     )
 }
+

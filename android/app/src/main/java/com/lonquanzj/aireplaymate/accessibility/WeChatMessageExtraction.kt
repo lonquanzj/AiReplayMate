@@ -5,7 +5,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 internal fun detectConversationTitle(collectedTexts: List<NodeText>): String? {
     return collectedTexts
-        .filter { it.top in 0..260 && !it.isLikelyControl }
+        .filter { it.top in 0..180 && !it.isLikelyControl }
         .map { it.text }
         .firstOrNull { text ->
             text.length in 2..24 &&
@@ -23,21 +23,15 @@ internal fun extractMessages(
     inputNode: AccessibilityNodeInfo?
 ): List<ChatMessage> {
     val inputBounds = inputNode?.let { Rect().also(it::getBoundsInScreen) }
-    val seen = linkedMapOf<String, NodeText>()
-
-    collectedTexts
-        .sortedBy { it.top }
-        .forEach { item ->
+    val orderedMessages = collectedTexts
+        .sortedWith(compareBy<NodeText> { it.top }.thenBy { it.left })
+        .mapNotNull { item ->
             val text = item.text.trim()
-            if (!item.isMessageCandidate(title, inputBounds, rootBounds)) return@forEach
-            val key = text.normalizedMessageKey()
-            val existing = seen[key]
-            if (existing == null || item.isBetterDuplicateThan(existing)) {
-                seen[key] = item.copy(text = text)
-            }
+            if (!item.isMessageCandidate(title, inputBounds, rootBounds)) return@mapNotNull null
+            item.copy(text = text)
         }
 
-    return seen.values.toList()
+    return orderedMessages
         .takeLast(MAX_EXTRACTED_MESSAGES)
         .mapIndexed { index, item ->
             val role = inferRole(item, rootBounds)
@@ -106,15 +100,18 @@ private fun NodeText.isMessageCandidate(
 ): Boolean {
     val cleanText = text.trim()
     if (cleanText.isEmpty()) return false
-    if (cleanText == title) return false
+    if (title != null && cleanText == title && isLikelyChatTitle()) return false
     if (cleanText.length > MAX_MESSAGE_TEXT_LENGTH) return false
     if (top < rootBounds.top + MIN_MESSAGE_TOP_OFFSET) return false
     if (inputBounds != null && bottom >= inputBounds.top - INPUT_AREA_PADDING) return false
+    if (isImagePlaceholder) return false
     if (isLikelyControl) return false
     if (timestampRegex.matches(cleanText)) return false
     if (dateRegex.matches(cleanText)) return false
     if (emojiOnlyRegex.matches(cleanText)) return false
     if (badgeRegex.matches(cleanText)) return false
+    if (cleanText in overlayNoiseExactTexts) return false
+    if (overlayNoiseFragments.any { cleanText.contains(it) }) return false
     if (className.contains("TextView", ignoreCase = true).not() &&
         source == NodeTextSource.CONTENT_DESCRIPTION &&
         cleanText.length <= 2
@@ -124,12 +121,6 @@ private fun NodeText.isMessageCandidate(
     return true
 }
 
-private fun NodeText.isBetterDuplicateThan(other: NodeText): Boolean {
-    if (source == NodeTextSource.TEXT && other.source == NodeTextSource.CONTENT_DESCRIPTION) return true
-    if (source == other.source && width > other.width) return true
-    return false
-}
-
 private fun NodeText.isCenteredSystemLike(rootBounds: Rect): Boolean {
     val rootWidth = rootBounds.width().takeIf { it > 0 } ?: return false
     val centerRatio = (centerX - rootBounds.left).toFloat() / rootWidth
@@ -137,8 +128,12 @@ private fun NodeText.isCenteredSystemLike(rootBounds: Rect): Boolean {
     return centerRatio in 0.42f..0.58f && widthRatio < 0.72f && text.length <= 40
 }
 
-private fun String.normalizedMessageKey(): String {
-    return whitespaceRegex.replace(trim(), " ")
+private fun NodeText.isLikelyChatTitle(): Boolean {
+    return top in 0..180 &&
+        width in 40..320 &&
+        left >= 260 &&
+        right <= 820 &&
+        !className.contains("ImageView", ignoreCase = true)
 }
 
 internal const val VISIBLE_TEXT_SAMPLE_LIMIT = 6
@@ -181,9 +176,31 @@ private val timestampRegex = Regex(
     """^((\u51cc\u6668|\u65e9\u4e0a|\u4e0a\u5348|\u4e2d\u5348|\u4e0b\u5348|\u665a\u4e0a)\s*)?\d{1,2}[:\uFF1A]\d{2}$"""
 )
 private val dateRegex = Regex(
-    """^((\d{4}\u5e74)?\d{1,2}\u6708\d{1,2}\u65e5|\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]|\u661f\u671f[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]|\u6628\u5929|\u4eca\u5929|\u524d\u5929)(\s*((\u51cc\u6668|\u65e9\u4e0a|\u4e0a\u5348|\u4e2d\u5348|\u4e0b\u5348|\u665a\u4e0a)\s*)?\d{1,2}[:\uFF1A]\d{2})?.*$"""
+    """^((\d{4}\u5e74)?\d{1,2}\u6708\d{1,2}\u65e5|\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]|\u661f\u671f[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]|\u6628\u5929|\u4eca\u5929|\u524d\u5929)(\s*((\u51cc\u6668|\u65e9\u4e0a|\u4e0a\u5348|\u4e2d\u5348|\u4e0b\u5348|\u665a\u4e0a)\s*)?\d{1,2}[:\uFF1A]\d{2})?$"""
 )
 private val badgeRegex = Regex("^\\d{1,3}$")
 private val emojiOnlyRegex = Regex("^[\\p{So}\\p{Cn}]+$")
 private val systemHintRegex = Regex("\u64a4\u56de|\u4ee5\u4e0a\u662f|\u4ee5\u4e0b\u662f|\u7cfb\u7edf")
-private val whitespaceRegex = Regex("\\s+")
+private val overlayNoiseExactTexts = setOf(
+    "浮窗",
+    "聊天预览",
+    "无障碍服务",
+    "悬浮窗权限",
+    "服务状态",
+    "气泡视图",
+    "更新时间",
+    "启动/刷新气泡",
+    "停止气泡",
+    "关于",
+    "项目说明与使用边界",
+    "主界面",
+    "回复风格",
+    "LLM 设置",
+    "高级调试"
+)
+private val overlayNoiseFragments = listOf(
+    "当前会把这段上下文送去生成",
+    "AI 小气泡正在显示",
+    "若微信里看不到",
+    "可以从真实微信聊天页触发生成"
+)
