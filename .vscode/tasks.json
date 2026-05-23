@@ -22,6 +22,28 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device smoke: stable suite (skip install)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-SkipInstall"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "group": {
         "kind": "test",
         "isDefault": true
@@ -44,6 +66,30 @@
         "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
         "-TestClass",
         "${input:deviceSmokeTestClass}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "device smoke: single test (skip install)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\run-device-smoke-test.ps1",
+        "-TestClass",
+        "${input:deviceSmokeTestClass}",
+        "-SkipInstall"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
