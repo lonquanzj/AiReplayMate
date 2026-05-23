@@ -21,6 +21,23 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function ConvertTo-ProcessArgumentString {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Args
+    )
+
+    # Start-Process can split args containing spaces; quote them explicitly.
+    return ($Args | ForEach-Object {
+            if ($_ -match '[\s"]') {
+                '"' + ($_ -replace '"', '\\"') + '"'
+            }
+            else {
+                $_
+            }
+        }) -join ' '
+}
+
 function Get-SdkDir {
     if ($env:ANDROID_SDK_ROOT -and (Test-Path $env:ANDROID_SDK_ROOT)) {
         return $env:ANDROID_SDK_ROOT
@@ -353,6 +370,17 @@ try {
     Remove-Item -Recurse -Force 'android/app/build/outputs/androidTest-results/connected' -ErrorAction SilentlyContinue
 
     Write-Host "[3/5] Ensure adb + connected device"
+    if ([string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        if (-not [string]::IsNullOrWhiteSpace($env:AIREPLAYMATE_DEVICE_SERIAL)) {
+            $DeviceSerial = $env:AIREPLAYMATE_DEVICE_SERIAL.Trim()
+            Write-Host "  using serial from env AIREPLAYMATE_DEVICE_SERIAL: $DeviceSerial"
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SERIAL)) {
+            $DeviceSerial = $env:ANDROID_SERIAL.Trim()
+            Write-Host "  using serial from env ANDROID_SERIAL: $DeviceSerial"
+        }
+    }
+
     & $adb start-server | Out-Null
     $devices = & $adb devices
     $devices | Tee-Object -FilePath $summaryLog | Out-Host
@@ -454,8 +482,9 @@ try {
     & $adb @adbTargetArgs shell am force-stop $TestPackage | Out-Null
     if (Test-Path $instrumentLog) { Remove-Item -Force $instrumentLog }
     if (Test-Path $instrumentErrLog) { Remove-Item -Force $instrumentErrLog }
+    $instrumentArgs = @($adbTargetArgs + @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner))
     $instrumentProcess = Start-Process -FilePath $adb `
-        -ArgumentList @($adbTargetArgs + @('shell', 'am', 'instrument', '-w', '-r', '-e', 'class', $joinedTestClasses, $runner)) `
+        -ArgumentList (ConvertTo-ProcessArgumentString -Args $instrumentArgs) `
         -RedirectStandardOutput $instrumentLog `
         -RedirectStandardError $instrumentErrLog `
         -NoNewWindow `
