@@ -32,6 +32,8 @@ class AppSettingsStoreTest {
                 model = "  gpt-test  ",
                 temperature = 0.9f,
                 maxTokens = 420,
+                customSystemPrompt = "  你是一个靠谱的聊天助手  ",
+                candidateCount = 5,
                 contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE
             )
         )
@@ -43,6 +45,8 @@ class AppSettingsStoreTest {
         assertEquals("gpt-test", loaded.model)
         assertEquals(0.9f, loaded.temperature, 0.0001f)
         assertEquals(420, loaded.maxTokens)
+        assertEquals("你是一个靠谱的聊天助手", loaded.customSystemPrompt)
+        assertEquals(5, loaded.candidateCount)
         assertEquals(ContextSendPolicy.LATEST_FRIEND_MESSAGE, loaded.contextSendPolicy)
     }
 
@@ -62,6 +66,8 @@ class AppSettingsStoreTest {
         assertEquals("sk-test", loaded.apiKey)
         assertEquals(defaults.baseUrl, loaded.baseUrl)
         assertEquals(defaults.model, loaded.model)
+        assertEquals(defaults.customSystemPrompt, loaded.customSystemPrompt)
+        assertEquals(defaults.candidateCount, loaded.candidateCount)
         assertEquals(defaults.contextSendPolicy, loaded.contextSendPolicy)
     }
 
@@ -72,6 +78,8 @@ class AppSettingsStoreTest {
         const val KEY_MODEL = "model"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_MAX_TOKENS = "max_tokens"
+        const val KEY_CUSTOM_SYSTEM_PROMPT = "custom_system_prompt"
+        const val KEY_CANDIDATE_COUNT = "candidate_count"
         const val KEY_CONTEXT_SEND_POLICY = "context_send_policy"
     }
 }

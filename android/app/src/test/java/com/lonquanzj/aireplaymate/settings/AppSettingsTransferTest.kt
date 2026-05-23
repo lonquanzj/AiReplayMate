@@ -22,16 +22,22 @@ class AppSettingsTransferTest {
             model = "gpt-test",
             temperature = 1.1f,
             maxTokens = 640,
+            customSystemPrompt = "keep replies natural",
+            candidateCount = 4,
             contextSendPolicy = ContextSendPolicy.LATEST_FRIEND_MESSAGE
         )
 
-        val decoded = AppSettingsTransfer.decode(AppSettingsTransfer.encode(settings)).getOrThrow()
+        val encoded = AppSettingsTransfer.encode(settings)
+        val decoded = AppSettingsTransfer.decode(encoded).getOrThrow()
 
+        assertTrue(encoded.contains("\"version\": 2"))
         assertEquals(settings.apiKey, decoded.apiKey)
         assertEquals(settings.baseUrl, decoded.baseUrl)
         assertEquals(settings.model, decoded.model)
         assertEquals(settings.temperature, decoded.temperature, 0.0001f)
         assertEquals(settings.maxTokens, decoded.maxTokens)
+        assertEquals(settings.customSystemPrompt, decoded.customSystemPrompt)
+        assertEquals(settings.candidateCount, decoded.candidateCount)
         assertEquals(settings.contextSendPolicy, decoded.contextSendPolicy)
     }
 
@@ -48,11 +54,13 @@ class AppSettingsTransferTest {
         val decoded = AppSettingsTransfer.decode(
             """
             {
+              "version": 2,
               "apiKey": "sk-test",
               "baseUrl": "",
               "model": "",
               "temperature": 9.0,
               "maxTokens": 40,
+              "candidateCount": 9,
               "contextSendPolicy": "REMOVED"
             }
             """.trimIndent()
@@ -64,7 +72,33 @@ class AppSettingsTransferTest {
         assertEquals(defaults.model, decoded.model)
         assertEquals(2f, decoded.temperature, 0.0001f)
         assertEquals(120, decoded.maxTokens)
+        assertEquals(defaults.customSystemPrompt, decoded.customSystemPrompt)
+        assertEquals(5, decoded.candidateCount)
         assertEquals(defaults.contextSendPolicy, decoded.contextSendPolicy)
+    }
+
+    @Test
+    fun decode_v1_payload_falls_back_to_defaults_for_new_fields() {
+        val decoded = AppSettingsTransfer.decode(
+            """
+            {
+              "version": 1,
+              "apiKey": "sk-v1",
+              "baseUrl": "https://legacy.test/v1/",
+              "model": "legacy-model",
+              "temperature": 0.5,
+              "maxTokens": 256,
+              "contextSendPolicy": "FULL_CONTEXT"
+            }
+            """.trimIndent()
+        ).getOrThrow()
+        val defaults = AppSettings()
+
+        assertEquals("sk-v1", decoded.apiKey)
+        assertEquals("https://legacy.test/v1/", decoded.baseUrl)
+        assertEquals("legacy-model", decoded.model)
+        assertEquals(defaults.customSystemPrompt, decoded.customSystemPrompt)
+        assertEquals(defaults.candidateCount, decoded.candidateCount)
     }
 
     @Test

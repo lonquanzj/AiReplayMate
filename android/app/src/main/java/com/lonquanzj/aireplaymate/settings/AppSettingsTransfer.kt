@@ -14,7 +14,7 @@ data class ExportedAppConfig(
 )
 
 object AppSettingsTransfer {
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun encode(settings: AppSettings): String {
         return encodeAppSettings(settings).put("version", VERSION).toString(2)
@@ -36,14 +36,21 @@ object AppSettingsTransfer {
     fun decode(raw: String): Result<AppSettings> {
         return runCatching {
             val root = JSONObject(raw)
-            decodeAppSettings(root.optJSONObject("llm") ?: root)
+            decodeAppSettings(
+                root = root.optJSONObject("llm") ?: root,
+                version = root.optInt("version", 1)
+            )
         }
     }
 
     fun decodeFull(raw: String): Result<ExportedAppConfig> {
         return runCatching {
             val root = JSONObject(raw)
-            val settings = decodeAppSettings(root.optJSONObject("llm") ?: root)
+            val version = root.optInt("version", 1)
+            val settings = decodeAppSettings(
+                root = root.optJSONObject("llm") ?: root,
+                version = version
+            )
             val catalog = root.optJSONObject("replyStyleCatalog")
                 ?.let { ReplyStyleCatalogStore.decodeFromJson(it) }
                 ?: ReplyStyleCatalogStore.defaultCatalog()
@@ -65,11 +72,20 @@ object AppSettingsTransfer {
             .put("model", settings.model)
             .put("temperature", LlmSampling.normalizedTemperatureDouble(settings.temperature))
             .put("maxTokens", settings.maxTokens)
+            .put("customSystemPrompt", settings.customSystemPrompt)
+            .put("candidateCount", settings.candidateCount)
             .put("contextSendPolicy", settings.contextSendPolicy.name)
     }
 
-    private fun decodeAppSettings(root: JSONObject): AppSettings {
+    private fun decodeAppSettings(root: JSONObject, version: Int): AppSettings {
         val defaults = AppSettings()
+        val decodedCustomSystemPrompt = root.optNullableString("customSystemPrompt")
+            ?: if (version >= 2) null else defaults.customSystemPrompt
+        val decodedCandidateCount = if (version >= 2) {
+            root.optInt("candidateCount", defaults.candidateCount)
+        } else {
+            defaults.candidateCount
+        }
         return AppSettings(
             apiKey = root.optString("apiKey", defaults.apiKey),
             baseUrl = root.optString("baseUrl", defaults.baseUrl).ifBlank { defaults.baseUrl },
@@ -78,8 +94,8 @@ object AppSettingsTransfer {
                 root.optDouble("temperature", defaults.temperature.toDouble()).toFloat()
             ),
             maxTokens = root.optInt("maxTokens", defaults.maxTokens).coerceIn(120, 2000),
-            customSystemPrompt = defaults.customSystemPrompt,
-            candidateCount = defaults.candidateCount,
+            customSystemPrompt = decodedCustomSystemPrompt,
+            candidateCount = decodedCandidateCount.coerceIn(1, 5),
             contextSendPolicy = root.optString("contextSendPolicy", defaults.contextSendPolicy.name)
                 .toContextSendPolicy(defaults.contextSendPolicy)
         )

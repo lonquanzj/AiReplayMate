@@ -12,6 +12,8 @@ object AppSettingsStore {
     private const val KEY_MODEL = "model"
     private const val KEY_TEMPERATURE = "temperature"
     private const val KEY_MAX_TOKENS = "max_tokens"
+    private const val KEY_CUSTOM_SYSTEM_PROMPT = "custom_system_prompt"
+    private const val KEY_CANDIDATE_COUNT = "candidate_count"
     private const val KEY_CONTEXT_SEND_POLICY = "context_send_policy"
 
     fun load(context: Context): AppSettings {
@@ -25,8 +27,11 @@ object AppSettingsStore {
                 .ifBlank { defaults.model },
             temperature = prefs.getFloat(KEY_TEMPERATURE, defaults.temperature),
             maxTokens = prefs.getInt(KEY_MAX_TOKENS, defaults.maxTokens),
-            customSystemPrompt = defaults.customSystemPrompt,
-            candidateCount = defaults.candidateCount,
+            customSystemPrompt = prefs.getString(KEY_CUSTOM_SYSTEM_PROMPT, defaults.customSystemPrompt)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() },
+            candidateCount = prefs.getInt(KEY_CANDIDATE_COUNT, defaults.candidateCount)
+                .coerceIn(1, 5),
             contextSendPolicy = prefs.getString(KEY_CONTEXT_SEND_POLICY, defaults.contextSendPolicy.name)
                 .toContextSendPolicy(defaults.contextSendPolicy)
         )
@@ -43,6 +48,8 @@ object AppSettingsStore {
             .putString(KEY_MODEL, settings.model.trim())
             .putFloat(KEY_TEMPERATURE, settings.temperature)
             .putInt(KEY_MAX_TOKENS, settings.maxTokens)
+            .putString(KEY_CUSTOM_SYSTEM_PROMPT, settings.customSystemPrompt?.trim()?.takeIf { it.isNotBlank() })
+            .putInt(KEY_CANDIDATE_COUNT, settings.candidateCount.coerceIn(1, 5))
             .putString(KEY_CONTEXT_SEND_POLICY, settings.contextSendPolicy.name)
             .apply()
         BackupManager(context.applicationContext).dataChanged()
