@@ -360,6 +360,9 @@ class OverlayButtonService : Service() {
             button.translationZ = 0f
             if (!floatingBubbleController.isDocked) {
                 floatingBubbleController.startFloatingIdleAnimation()
+                layoutParams?.let { params ->
+                    floatingBubbleController.dockFloatingButton(button, params, isPushed = false)
+                }
             }
         }
     }

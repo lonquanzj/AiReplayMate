@@ -96,8 +96,10 @@ internal class OverlayFloatingBubbleController(
                     longPressRunnable?.let(target::removeCallbacks)
                     if (!moved && !longPressTriggered) {
                         target.performClick()
+                        // 点击唤回后，也需要开启闲置贴边倒计时
+                        dockFloatingButton(target, params, isPushed = false)
                     } else if (moved) {
-                        dockFloatingButton(target, params)
+                        dockFloatingButton(target, params, isPushed = true)
                     }
                     true
                 }
@@ -166,11 +168,14 @@ internal class OverlayFloatingBubbleController(
         stopFloatingIdleAnimation()
     }
 
-    private fun dockFloatingButton(
+    fun dockFloatingButton(
         view: View,
-        params: WindowManager.LayoutParams
+        params: WindowManager.LayoutParams,
+        isPushed: Boolean = false
     ) {
         if (isGeneratingCandidates()) return
+        autoDockRunnable?.let(mainHandler::removeCallbacks)
+        autoDockRunnable = null
         stopFloatingIdleAnimation()
 
         val screenWidth = context.resources.displayMetrics.widthPixels
@@ -184,21 +189,22 @@ internal class OverlayFloatingBubbleController(
             (screenHeight - params.height - verticalMargin).coerceAtLeast(verticalMargin)
         )
 
-        // 检测是否“主动推到边缘”：松手位置距离边缘小于 4dp
-        val pushedToEdge = when (side) {
+        // 检测是否“主动推到边缘”：只有在拖拽(isPushed=true)且位置靠近边缘时才成立
+        val pushedToEdge = isPushed && (when (side) {
             DockedSide.LEFT -> params.x <= context.dpPx(4)
             DockedSide.RIGHT -> params.x >= screenWidth - params.width - context.dpPx(4)
-        }
+        })
 
         if (pushedToEdge) {
             // 直接执行贴边（半隐藏）
             performFinalDock(view, params, side, targetY)
         } else {
-            // 先吸附到边缘（全显）
+            // 先吸附到边缘（全显），吸附动画结束后开启 2.5s 计时
             val snapX = when (side) {
                 DockedSide.LEFT -> 0
                 DockedSide.RIGHT -> screenWidth - params.width
             }
+            // 如果已经在 snapX 位置（比如点击出来的），animateToInternal 会很快结束并开启计时
             animateToInternal(view, params, snapX, targetY) {
                 autoDockRunnable = Runnable {
                     performFinalDock(view, params, side, targetY)
