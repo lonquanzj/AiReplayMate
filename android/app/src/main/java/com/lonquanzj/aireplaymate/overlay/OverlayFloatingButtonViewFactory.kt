@@ -31,7 +31,7 @@ internal fun buildFloatingButtonBundle(
     val button = FrameLayout(context).apply {
         background = floatingButtonBackgroundDrawable()
         alpha = 0.94f
-        elevation = 12f
+        elevation = 0f
         setOnClickListener { onClick() }
     }
     button.addView(createFloatingButtonIcon(context, onAvatarBound))
@@ -45,7 +45,7 @@ internal fun buildFloatingButtonBundle(
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
-        x = context.dpPx(16)
+        x = -context.dpPx(4)
         y = context.dpPx(220)
     }
 
@@ -72,7 +72,6 @@ private fun createFloatingButtonIcon(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
-        setPadding(context.dpPx(3), context.dpPx(3), context.dpPx(3), context.dpPx(3))
         addView(
             ImageView(context).apply {
                 setImageResource(R.drawable.floating_avatar_idle)

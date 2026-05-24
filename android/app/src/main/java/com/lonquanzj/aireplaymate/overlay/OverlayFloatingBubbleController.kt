@@ -191,8 +191,8 @@ internal class OverlayFloatingBubbleController(
 
         // 检测是否“主动推到边缘”：只有在拖拽(isPushed=true)且位置靠近边缘时才成立
         val pushedToEdge = isPushed && (when (side) {
-            DockedSide.LEFT -> params.x <= context.dpPx(4)
-            DockedSide.RIGHT -> params.x >= screenWidth - params.width - context.dpPx(4)
+            DockedSide.LEFT -> params.x <= context.dpPx(8)
+            DockedSide.RIGHT -> params.x >= screenWidth - params.width - context.dpPx(8)
         })
 
         if (pushedToEdge) {
@@ -200,9 +200,11 @@ internal class OverlayFloatingBubbleController(
             performFinalDock(view, params, side, targetY)
         } else {
             // 先吸附到边缘（全显），吸附动画结束后开启 2.5s 计时
+            // 往外多推 4dp 以消除素材自带的透明边距感
+            val overSnap = context.dpPx(4)
             val snapX = when (side) {
-                DockedSide.LEFT -> 0
-                DockedSide.RIGHT -> screenWidth - params.width
+                DockedSide.LEFT -> -overSnap
+                DockedSide.RIGHT -> screenWidth - params.width + overSnap
             }
             // 如果已经在 snapX 位置（比如点击出来的），animateToInternal 会很快结束并开启计时
             animateToInternal(view, params, snapX, targetY) {
