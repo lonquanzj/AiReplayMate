@@ -163,6 +163,8 @@ class OverlayButtonService : Service() {
         floatingBubbleController.attachDragHandler(button, params)
         windowManager?.addView(button, params)
         floatingBubbleController.startFloatingIdleAnimation()
+        // 第一次显示时，也开启 2.5s 闲置贴边倒计时
+        floatingBubbleController.dockFloatingButton(button, params, isPushed = false)
     }
 
     private fun triggerCandidateGeneration(

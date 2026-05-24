@@ -3,6 +3,7 @@ package com.lonquanzj.aireplaymate.overlay
 import android.animation.Animator
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.animation.TimeInterpolator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.os.Handler
@@ -11,6 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import com.lonquanzj.aireplaymate.R
 import kotlin.math.abs
@@ -56,11 +58,22 @@ internal class OverlayFloatingBubbleController(
                     autoDockRunnable?.let(mainHandler::removeCallbacks)
                     autoDockRunnable = null
 
-                    if (isDocked) {
-                        val screenWidth = context.resources.displayMetrics.widthPixels
-                        params.x = if (dockedSide == DockedSide.LEFT) 0 else screenWidth - params.width
+                    // 只要按下，立即恢复不透明度和位置，确保交互灵敏
+                    val screenWidth = context.resources.displayMetrics.widthPixels
+                    val overSnap = context.dpPx(4)
+                    val isFaded = target.alpha < 0.9f
+                    val isHidden = params.x < -overSnap || params.x > screenWidth - params.width + overSnap
+
+                    if (isDocked || isFaded || isHidden) {
+                        params.x = if (params.x + params.width / 2 < screenWidth / 2) {
+                            -overSnap
+                        } else {
+                            screenWidth - params.width + overSnap
+                        }
+                        target.alpha = 0.94f
                         windowManagerProvider()?.updateViewLayout(target, params)
                     }
+
                     undockFloatingAvatar()
                     startX = params.x
                     startY = params.y
@@ -196,18 +209,21 @@ internal class OverlayFloatingBubbleController(
         })
 
         if (pushedToEdge) {
-            // 直接执行贴边（半隐藏）
+            // 直接执行贴边（半隐藏 + 变淡）
             performFinalDock(view, params, side, targetY)
         } else {
             // 先吸附到边缘（全显），吸附动画结束后开启 2.5s 计时
-            // 往外多推 4dp 以消除素材自带的透明边距感
+            // 使用 OvershootInterpolator 产生回弹感
             val overSnap = context.dpPx(4)
             val snapX = when (side) {
                 DockedSide.LEFT -> -overSnap
                 DockedSide.RIGHT -> screenWidth - params.width + overSnap
             }
-            // 如果已经在 snapX 位置（比如点击出来的），animateToInternal 会很快结束并开启计时
-            animateToInternal(view, params, snapX, targetY) {
+            animateToInternal(
+                view, params, snapX, targetY,
+                targetAlpha = 0.94f,
+                interpolator = OvershootInterpolator(1.2f)
+            ) {
                 autoDockRunnable = Runnable {
                     performFinalDock(view, params, side, targetY)
                 }.also { mainHandler.postDelayed(it, AUTO_DOCK_DELAY_MS) }
@@ -227,7 +243,8 @@ internal class OverlayFloatingBubbleController(
             DockedSide.LEFT -> -(params.width - visibleWidth)
             DockedSide.RIGHT -> screenWidth - visibleWidth
         }
-        animateToInternal(view, params, hiddenX, targetY) {
+        // 贴边时不仅移动位置，还将透明度降至 0.4
+        animateToInternal(view, params, hiddenX, targetY, targetAlpha = 0.4f) {
             isDocked = true
             dockedSide = side
             floatingAvatarView?.setImageResource(
@@ -244,18 +261,24 @@ internal class OverlayFloatingBubbleController(
         params: WindowManager.LayoutParams,
         targetX: Int,
         targetY: Int,
+        targetAlpha: Float? = null,
+        interpolator: TimeInterpolator = DecelerateInterpolator(),
         onEnd: () -> Unit
     ) {
         dockAnimator?.cancel()
+        val startAlpha = view.alpha
         dockAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = DOCK_ANIMATION_DURATION_MS
-            interpolator = DecelerateInterpolator()
+            this.interpolator = interpolator
             val startX = params.x
             val startY = params.y
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
                 params.x = (startX + (targetX - startX) * fraction).toInt()
                 params.y = (startY + (targetY - startY) * fraction).toInt()
+                if (targetAlpha != null) {
+                    view.alpha = startAlpha + (targetAlpha - startAlpha) * fraction
+                }
                 windowManagerProvider()?.updateViewLayout(view, params)
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
@@ -273,6 +296,7 @@ internal class OverlayFloatingBubbleController(
         isDocked = false
         dockedSide = null
         floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
+        floatingAvatarView?.alpha = 1.0f
         if (!isGeneratingCandidates()) {
             startFloatingIdleAnimation()
         }
