@@ -127,14 +127,21 @@ internal class OverlayFloatingBubbleController(
         }
     }
 
-    fun startFloatingIdleAnimation() {
-        if (isGeneratingCandidates() || isDocked || idleBlinkRunnable != null) return
+    fun startFloatingIdleAnimation(customDelay: Long? = null) {
+        if (isGeneratingCandidates() || idleBlinkRunnable != null) return
         val avatar = floatingAvatarView ?: return
-        val delay = (IDLE_BLINK_MIN_DELAY_MS..IDLE_BLINK_MAX_DELAY_MS).random()
+        val delay = customDelay ?: (IDLE_BLINK_MIN_DELAY_MS..IDLE_BLINK_MAX_DELAY_MS).random()
         idleBlinkRunnable = Runnable {
             idleBlinkRunnable = null
-            if (!isGeneratingCandidates() && !isDocked && avatar.parent != null) {
-                avatar.setImageResource(R.drawable.floating_avatar_wink_right)
+            if (!isGeneratingCandidates() && avatar.parent != null) {
+                // 如果在右边或者 idle，用 wink_right；如果在左边，用 peek_left
+                val winkRes = if (dockedSide == DockedSide.LEFT) {
+                    R.drawable.floating_avatar_peek_left
+                } else {
+                    R.drawable.floating_avatar_wink_right
+                }
+                avatar.setImageResource(winkRes)
+
                 floatingIdleAnimator = AnimatorSet().apply {
                     val blink = ObjectAnimator.ofFloat(avatar, View.SCALE_Y, 1f, 0.96f, 1f).apply {
                         duration = IDLE_BLINK_DURATION_MS
@@ -146,13 +153,19 @@ internal class OverlayFloatingBubbleController(
                     addListener(
                         object : android.animation.AnimatorListenerAdapter() {
                             override fun onAnimationEnd(animation: Animator) {
-                                avatar.setImageResource(R.drawable.floating_avatar_idle)
+                                // 动画结束，恢复到当前应有的状态图
+                                val restoreRes = if (isDocked) {
+                                    if (dockedSide == DockedSide.LEFT) R.drawable.floating_avatar_peek_left
+                                    else R.drawable.floating_avatar_wink_right
+                                } else {
+                                    R.drawable.floating_avatar_idle
+                                }
+                                avatar.setImageResource(restoreRes)
                                 floatingIdleAnimator = null
                                 startFloatingIdleAnimation()
                             }
 
                             override fun onAnimationCancel(animation: Animator) {
-                                avatar.setImageResource(R.drawable.floating_avatar_idle)
                                 floatingIdleAnimator = null
                             }
                         }
@@ -189,7 +202,11 @@ internal class OverlayFloatingBubbleController(
         if (isGeneratingCandidates()) return
         autoDockRunnable?.let(mainHandler::removeCallbacks)
         autoDockRunnable = null
-        stopFloatingIdleAnimation()
+
+        // 关键修复：只有在主动推边（立即隐藏）时才停止眨眼；吸附过程中允许继续计时
+        if (isPushed) {
+            stopFloatingIdleAnimation()
+        }
 
         val screenWidth = context.resources.displayMetrics.widthPixels
         val screenHeight = context.resources.displayMetrics.heightPixels
@@ -202,18 +219,15 @@ internal class OverlayFloatingBubbleController(
             (screenHeight - params.height - verticalMargin).coerceAtLeast(verticalMargin)
         )
 
-        // 检测是否“主动推到边缘”：只有在拖拽(isPushed=true)且位置靠近边缘时才成立
+        // 检测是否“主动推到边缘”
         val pushedToEdge = isPushed && (when (side) {
             DockedSide.LEFT -> params.x <= context.dpPx(8)
             DockedSide.RIGHT -> params.x >= screenWidth - params.width - context.dpPx(8)
         })
 
         if (pushedToEdge) {
-            // 直接执行贴边（半隐藏 + 变淡）
             performFinalDock(view, params, side, targetY)
         } else {
-            // 先吸附到边缘（全显），吸附动画结束后开启 2.5s 计时
-            // 使用 OvershootInterpolator 产生回弹感
             val overSnap = context.dpPx(4)
             val snapX = when (side) {
                 DockedSide.LEFT -> -overSnap
@@ -224,6 +238,10 @@ internal class OverlayFloatingBubbleController(
                 targetAlpha = 0.94f,
                 interpolator = OvershootInterpolator(1.2f)
             ) {
+                // 吸附到边缘后，如果没在眨眼，就补一个眨眼
+                if (idleBlinkRunnable == null) {
+                    startFloatingIdleAnimation()
+                }
                 autoDockRunnable = Runnable {
                     performFinalDock(view, params, side, targetY)
                 }.also { mainHandler.postDelayed(it, AUTO_DOCK_DELAY_MS) }
@@ -237,6 +255,7 @@ internal class OverlayFloatingBubbleController(
         side: DockedSide,
         targetY: Int
     ) {
+        stopFloatingIdleAnimation() // 彻底缩进隐藏前，清理旧动画冲突
         val screenWidth = context.resources.displayMetrics.widthPixels
         val visibleWidth = context.dpPx(DOCKED_VISIBLE_WIDTH_DP)
         val hiddenX = when (side) {
@@ -253,6 +272,7 @@ internal class OverlayFloatingBubbleController(
                     DockedSide.RIGHT -> R.drawable.floating_avatar_wink_right
                 }
             )
+            startFloatingIdleAnimation() // 彻底贴边后也要继续眨眼
         }
     }
 
@@ -295,10 +315,13 @@ internal class OverlayFloatingBubbleController(
         if (!isDocked && dockedSide == null) return
         isDocked = false
         dockedSide = null
+        // 强行停止之前的闲置动画计时，确保 0.5s 的快速眨眼能排上队
+        stopFloatingIdleAnimation()
         floatingAvatarView?.setImageResource(R.drawable.floating_avatar_idle)
         floatingAvatarView?.alpha = 1.0f
         if (!isGeneratingCandidates()) {
-            startFloatingIdleAnimation()
+            // 召唤出来时，0.5s 后立即眨眼一次
+            startFloatingIdleAnimation(500L)
         }
     }
 }

@@ -162,7 +162,8 @@ class OverlayButtonService : Service() {
         floatingButtonView = button
         floatingBubbleController.attachDragHandler(button, params)
         windowManager?.addView(button, params)
-        floatingBubbleController.startFloatingIdleAnimation()
+        // 第一次启动即刻表现出灵动感，0.5s 后眨眼
+        floatingBubbleController.startFloatingIdleAnimation(500L)
         // 第一次显示时，也开启 2.5s 闲置贴边倒计时
         floatingBubbleController.dockFloatingButton(button, params, isPushed = false)
     }
@@ -360,8 +361,10 @@ class OverlayButtonService : Service() {
             button.scaleX = 1f
             button.scaleY = 1f
             button.translationZ = 0f
+
+            floatingBubbleController.startFloatingIdleAnimation(500L)
+
             if (!floatingBubbleController.isDocked) {
-                floatingBubbleController.startFloatingIdleAnimation()
                 layoutParams?.let { params ->
                     floatingBubbleController.dockFloatingButton(button, params, isPushed = false)
                 }

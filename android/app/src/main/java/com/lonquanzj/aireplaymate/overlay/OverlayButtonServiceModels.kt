@@ -43,8 +43,8 @@ internal const val FLOATING_BUTTON_SIZE_DP = 56
 internal const val DOCKED_VISIBLE_WIDTH_DP = 15
 internal const val DOCK_ANIMATION_DURATION_MS = 220L
 internal const val AUTO_DOCK_DELAY_MS = 3000L
-internal const val IDLE_BLINK_MIN_DELAY_MS = 2_000L
-internal const val IDLE_BLINK_MAX_DELAY_MS = 4_000L
+internal const val IDLE_BLINK_MIN_DELAY_MS = 1000L
+internal const val IDLE_BLINK_MAX_DELAY_MS = 2000L
 internal const val IDLE_BLINK_DURATION_MS = 360L
 
 // 将 session 层候选转换为 overlay 展示模型，避免 UI 直接依赖 prompt 模型。
