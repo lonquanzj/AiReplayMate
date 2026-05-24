@@ -33,15 +33,10 @@ object DefaultPromptBuilder : PromptBuilder {
 
     private fun buildSystemPrompt(styleProfile: ReplyStyleProfile): String {
         return buildString {
-            appendLine(DEFAULT_SYSTEM_PROMPT)
-            appendLine(SAFETY_PROMPT)
-            when (styleProfile.mode) {
-                ReplyStyleMode.QUICK_REPLY -> Unit
-                ReplyStyleMode.PLAYBOOK -> Unit
-                ReplyStyleMode.POLISH -> Unit
-            }
-            appendLine("表达要求：中文口语化、短句优先、有分寸；每条候选不超过 45 个字，除非上下文明显需要更长。")
-            appendLine(OUTPUT_PROTOCOL_PROMPT)
+            appendLine("你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复。")
+            appendLine("安全边界：不得自动替用户承诺付款、合同、发送文件。")
+            appendLine("表达要求：中文口语化、短句优先、有分寸；每条候选不超过 60 个字，除非上下文明显需要更长。")
+            appendLine("输出协议：请严格返回 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。不要使用列表编号、引号、解释性前缀。")
         }.trim()
     }
 
@@ -107,7 +102,7 @@ object DefaultPromptBuilder : PromptBuilder {
 
     private fun StringBuilder.appendOcrContextHintIfNeeded(includesOcrContext: Boolean) {
         if (includesOcrContext) {
-            appendLine(OCR_CONTEXT_HINT)
+            appendLine("上下文可能来自 OCR：理解语义前请温和纠正常见近形错、繁简差异和少量识别噪声。")
         }
     }
 
@@ -166,12 +161,4 @@ object DefaultPromptBuilder : PromptBuilder {
 
     private const val MAX_PROMPT_MESSAGES = 20
     private val controlCharsRegex = Regex("[\\p{Cntrl}&&[^\n\t]]+")
-    private const val DEFAULT_SYSTEM_PROMPT =
-        "你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复。"
-    private const val SAFETY_PROMPT =
-        "安全边界：不得自动替用户承诺付款、合同、发送文件。"
-    private const val OCR_CONTEXT_HINT =
-        "上下文可能来自 OCR：理解语义前请温和纠正常见近形错、繁简差异和少量识别噪声。"
-    private const val OUTPUT_PROTOCOL_PROMPT =
-        "输出协议：请严格返回 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。不要使用列表编号、引号、解释性前缀。"
 }
