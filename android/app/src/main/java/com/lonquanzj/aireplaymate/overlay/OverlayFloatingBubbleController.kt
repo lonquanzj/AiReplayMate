@@ -33,6 +33,7 @@ internal class OverlayFloatingBubbleController(
 
     private var dockedSide: DockedSide? = null
     private var dockAnimator: ValueAnimator? = null
+    private var autoDockRunnable: Runnable? = null
     private var floatingIdleAnimator: AnimatorSet? = null
     private var idleBlinkRunnable: Runnable? = null
 
@@ -52,6 +53,14 @@ internal class OverlayFloatingBubbleController(
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dockAnimator?.cancel()
+                    autoDockRunnable?.let(mainHandler::removeCallbacks)
+                    autoDockRunnable = null
+
+                    if (isDocked) {
+                        val screenWidth = context.resources.displayMetrics.widthPixels
+                        params.x = if (dockedSide == DockedSide.LEFT) 0 else screenWidth - params.width
+                        windowManagerProvider()?.updateViewLayout(target, params)
+                    }
                     undockFloatingAvatar()
                     startX = params.x
                     startY = params.y
@@ -162,58 +171,91 @@ internal class OverlayFloatingBubbleController(
         params: WindowManager.LayoutParams
     ) {
         if (isGeneratingCandidates()) return
-
-        // 拖拽结束后吸附到左右边缘，只保留一部分可见宽度。
         stopFloatingIdleAnimation()
+
         val screenWidth = context.resources.displayMetrics.widthPixels
         val screenHeight = context.resources.displayMetrics.heightPixels
-        val visibleWidth = context.dpPx(DOCKED_VISIBLE_WIDTH_DP)
         val verticalMargin = context.dpPx(12)
         val centerX = params.x + params.width / 2
         val side = if (centerX < screenWidth / 2) DockedSide.LEFT else DockedSide.RIGHT
-        val targetX = when (side) {
-            DockedSide.LEFT -> -(params.width - visibleWidth)
-            DockedSide.RIGHT -> screenWidth - visibleWidth
-        }
+
         val targetY = params.y.coerceIn(
             verticalMargin,
             (screenHeight - params.height - verticalMargin).coerceAtLeast(verticalMargin)
         )
 
+        // 检测是否“主动推到边缘”：松手位置距离边缘小于 4dp
+        val pushedToEdge = when (side) {
+            DockedSide.LEFT -> params.x <= context.dpPx(4)
+            DockedSide.RIGHT -> params.x >= screenWidth - params.width - context.dpPx(4)
+        }
+
+        if (pushedToEdge) {
+            // 直接执行贴边（半隐藏）
+            performFinalDock(view, params, side, targetY)
+        } else {
+            // 先吸附到边缘（全显）
+            val snapX = when (side) {
+                DockedSide.LEFT -> 0
+                DockedSide.RIGHT -> screenWidth - params.width
+            }
+            animateToInternal(view, params, snapX, targetY) {
+                autoDockRunnable = Runnable {
+                    performFinalDock(view, params, side, targetY)
+                }.also { mainHandler.postDelayed(it, AUTO_DOCK_DELAY_MS) }
+            }
+        }
+    }
+
+    private fun performFinalDock(
+        view: View,
+        params: WindowManager.LayoutParams,
+        side: DockedSide,
+        targetY: Int
+    ) {
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val visibleWidth = context.dpPx(DOCKED_VISIBLE_WIDTH_DP)
+        val hiddenX = when (side) {
+            DockedSide.LEFT -> -(params.width - visibleWidth)
+            DockedSide.RIGHT -> screenWidth - visibleWidth
+        }
+        animateToInternal(view, params, hiddenX, targetY) {
+            isDocked = true
+            dockedSide = side
+            floatingAvatarView?.setImageResource(
+                when (side) {
+                    DockedSide.LEFT -> R.drawable.floating_avatar_peek_left
+                    DockedSide.RIGHT -> R.drawable.floating_avatar_wink_right
+                }
+            )
+        }
+    }
+
+    private fun animateToInternal(
+        view: View,
+        params: WindowManager.LayoutParams,
+        targetX: Int,
+        targetY: Int,
+        onEnd: () -> Unit
+    ) {
         dockAnimator?.cancel()
         dockAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = DOCK_ANIMATION_DURATION_MS
             interpolator = DecelerateInterpolator()
             val startX = params.x
             val startY = params.y
-            var cancelled = false
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
                 params.x = (startX + (targetX - startX) * fraction).toInt()
                 params.y = (startY + (targetY - startY) * fraction).toInt()
                 windowManagerProvider()?.updateViewLayout(view, params)
             }
-            addListener(
-                object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        if (cancelled) return
-                        isDocked = true
-                        dockedSide = side
-                        floatingAvatarView?.setImageResource(
-                            when (side) {
-                                DockedSide.LEFT -> R.drawable.floating_avatar_peek_left
-                                DockedSide.RIGHT -> R.drawable.floating_avatar_wink_right
-                            }
-                        )
-                        dockAnimator = null
-                    }
-
-                    override fun onAnimationCancel(animation: Animator) {
-                        cancelled = true
-                        dockAnimator = null
-                    }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    onEnd()
+                    dockAnimator = null
                 }
-            )
+            })
             start()
         }
     }
