@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import com.lonquanzj.aireplaymate.diagnostics.DiagnosticLogStore
 import com.lonquanzj.aireplaymate.overlay.OverlayButtonService
 import com.lonquanzj.aireplaymate.overlay.OverlayServiceStateStore
@@ -14,6 +15,7 @@ import com.lonquanzj.aireplaymate.ui.theme.AiReplayMateTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         DiagnosticLogStore.initialize(this)
 

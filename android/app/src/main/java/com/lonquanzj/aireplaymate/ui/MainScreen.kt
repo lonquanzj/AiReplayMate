@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -125,23 +127,28 @@ internal fun MainScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFFFFCFF),
-                        Color(0xFFF8F4FF),
-                        Color(0xFFF3EEFF)
+                        Color(0xFFF7F3FF),
+                        Color(0xFFF1ECFF),
+                        Color(0xFFFFFCFF)
                     )
                 )
             )
     ) {
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.statusBars,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
                 ScrollableTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     edgePadding = 12.dp,
+                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                    contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                     indicator = { tabPositions ->
                         val currentTab = tabPositions[pagerState.currentPage]
-                        Box(Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
@@ -149,12 +156,13 @@ internal fun MainScreen(
                                     .width(currentTab.width)
                                     .height(3.dp)
                                     .background(
-                                        color = TabRowDefaults.primaryContentColor,
+                                        color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                                         shape = RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp)
                                     )
                             )
                         }
-                    }
+                    },
+                    modifier = Modifier.navigationBarsPadding()
                 ) {
                     HomeTab.entries.forEachIndexed { index, tab ->
                         Tab(
@@ -164,7 +172,12 @@ internal fun MainScreen(
                                     pagerState.animateScrollToPage(index)
                                 }
                             },
-                            text = { Text(tab.label) }
+                            text = {
+                                Text(
+                                    text = tab.label,
+                                    style = androidx.compose.material3.MaterialTheme.typography.titleSmall
+                                )
+                            }
                         )
                     }
                 }
@@ -174,6 +187,7 @@ internal fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .statusBarsPadding()
             ) {
                 HorizontalPager(
                     state = pagerState,
