@@ -23,7 +23,7 @@ object DefaultPromptBuilder : PromptBuilder {
     ): LlmRequest {
         val candidateCount = settings.candidateCount.coerceAtLeast(1)
         return LlmRequest(
-            systemPrompt = buildSystemPrompt(styleProfile),
+            systemPrompt = buildSystemPrompt(),
             userPrompt = buildUserPrompt(context, candidateCount, styleProfile, draftText, settings.contextSendPolicy),
             temperature = LlmSampling.normalizeTemperature(settings.temperature),
             maxTokens = settings.maxTokens.coerceAtLeast(120),
@@ -31,12 +31,11 @@ object DefaultPromptBuilder : PromptBuilder {
         )
     }
 
-    private fun buildSystemPrompt(styleProfile: ReplyStyleProfile): String {
+    private fun buildSystemPrompt(): String {
         return buildString {
-            appendLine("你是一个微信聊天回复助手。你只生成供用户审核后手动发送的候选回复。")
-            appendLine("安全边界：不得自动替用户承诺付款、合同、发送文件。")
-            appendLine("表达要求：中文口语化、短句优先、有分寸；每条候选不超过 60 个字，除非上下文明显需要更长。")
-            appendLine("输出协议：请严格返回 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。不要使用列表编号、引号、解释性前缀。")
+            appendLine("你是微信聊天回复助手，只生成候选回复。")
+            appendLine("回复要中文口语化、短句、有分寸；每条候选不超过 60 个字，除非上下文明显需要更长。")
+            appendLine("只返回合法 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。")
         }.trim()
     }
 
@@ -78,6 +77,7 @@ object DefaultPromptBuilder : PromptBuilder {
             return buildString {
                 appendLine("下面是微信单聊里最近一条对方消息。")
                 appendLine("请基于这条消息生成 $candidateCount 条中文候选回复。")
+                appendQuickReplyModeInstruction()
                 appendOcrContextHintIfNeeded(includesOcrContext)
                 appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
                 appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
@@ -89,6 +89,7 @@ object DefaultPromptBuilder : PromptBuilder {
         return buildString {
             appendLine("下面是微信单聊的最近聊天上下文。")
             appendLine("请基于上下文生成 $candidateCount 条中文候选回复。")
+            appendQuickReplyModeInstruction()
             appendOcrContextHintIfNeeded(includesOcrContext)
             appendLine("当前角色身份：${styleProfile.personaConfig.identityPrompt}")
             appendLine("当前角色提示词：${styleProfile.personaConfig.promptGuide}")
@@ -98,6 +99,12 @@ object DefaultPromptBuilder : PromptBuilder {
                 appendLine("${message.role.promptLabel}: ${message.content.safeForPrompt()}")
             }
         }
+    }
+
+    private fun StringBuilder.appendQuickReplyModeInstruction() {
+        appendLine("快速回复模式要求：根据当前提供的聊天材料判断最需要回应的点，避免机械套话。")
+        appendLine("如果材料是最近一条对方消息，就围绕这条消息回复；如果是完整上下文，就结合上下文判断当前重点。")
+        appendLine("上下文不完整或对方意图不明确时，用自然追问继续聊天，不要编造事实。")
     }
 
     private fun StringBuilder.appendOcrContextHintIfNeeded(includesOcrContext: Boolean) {

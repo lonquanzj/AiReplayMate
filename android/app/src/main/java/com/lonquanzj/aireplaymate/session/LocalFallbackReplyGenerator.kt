@@ -202,12 +202,73 @@ object LocalFallbackReplyGenerator {
         return when (persona) {
             ReplyPersona.ROMANCE_MASTER -> map { it.replace("我先", "我倒想先").replace("收到，", "行，") }
             ReplyPersona.FLIRT_EXPERT -> map { it.toFlirtExpertReply() }
+            ReplyPersona.RELAXED_GUY -> map { it.toRelaxedGuyReply() }
+            ReplyPersona.PUSH_PULL -> map { it.toPushPullReply() }
+            ReplyPersona.GOOD_LISTENER -> map { it.toGoodListenerReply() }
+            ReplyPersona.DATE_PLANNER -> map { it.toDatePlannerReply() }
+            ReplyPersona.CONTRAST_FUN -> map { it.toContrastFunReply() }
             ReplyPersona.DOMINANT_CEO -> map { it.replace("可以啊", "可以").replace("好呀", "好").replace("慢慢", "按舒服的节奏") }
             ReplyPersona.MATURE_UNCLE -> map { it.replace("有点", "还挺").replace("晚点", "稍晚一点") }
             ReplyPersona.WARM_GENTLE -> this
+            ReplyPersona.ABSTRACT_MODE -> map { it.toAbstractReply() }
             ReplyPersona.ZUOAN_MODE -> map { it.replace("可以啊", "可以啊").replace("不好意思", "").replace("麻烦", "").replace("谢谢", "") }
             ReplyPersona.TIEBA_MODE -> map { it.toTiebaReply() }
             ReplyPersona.LUXUN_MODE -> map { it.toLuxunReply() }
+        }
+    }
+
+    private fun String.toRelaxedGuyReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先看下安排，不急，确认好了跟你说。"
+            contains("晚点") || contains("稍后") -> "我晚点回你，先把手头这点收一下。"
+            contains("可以") || contains("没问题") -> "可以啊，听起来还挺顺的，就这么来。"
+            contains("好奇") || contains("想继续") -> "这我还真有点好奇了，你继续讲。"
+            contains("舒服") || contains("慢慢") -> "那就慢慢聊，节奏舒服比啥都重要。"
+            else -> "嗯，我懂你意思，这事可以慢慢展开。"
+        }
+    }
+
+    private fun String.toPushPullReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先确认一下，别急，靠谱这事我还是在线的。"
+            contains("晚点") || contains("稍后") -> "晚点回你，留点悬念也不是不行。"
+            contains("可以") || contains("没问题") -> "可以，不过你这么说，我会合理怀疑你也有点期待。"
+            contains("好奇") || contains("想继续") -> "想听可以，但你得继续说，这钩子放得有点会。"
+            contains("舒服") || contains("慢慢") -> "那就慢慢来，太快反而少点意思。"
+            else -> "你这句话有点会，我先接住，但不夸太多。"
+        }
+    }
+
+    private fun String.toGoodListenerReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先认真看一下，确认清楚再回你，免得随便应付。"
+            contains("晚点") || contains("稍后") -> "我晚点认真回你，不想随便糊弄过去。"
+            contains("可以") || contains("没问题") -> "可以，我先接住你的意思，也想听听你怎么想。"
+            contains("好奇") || contains("想继续") -> "我在听，你慢慢说，我还挺想知道后面怎么了。"
+            contains("舒服") || contains("慢慢") -> "那就按你舒服的节奏来，不用急着说完。"
+            else -> "我听懂一点了，你如果愿意，可以再多跟我说说。"
+        }
+    }
+
+    private fun String.toDatePlannerReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先确认下安排，合适的话我们就定个轻松点的时间。"
+            contains("晚点") || contains("稍后") -> "晚点我看下时间，要是方便，我们可以顺手把计划定了。"
+            contains("可以") || contains("没问题") -> "可以，那我们找个都不赶的时间，轻松一点。"
+            contains("好奇") || contains("想继续") -> "那下次可以边聊边试试，感觉会比只打字有意思。"
+            contains("舒服") || contains("慢慢") -> "那就不急，等节奏舒服了再约也刚好。"
+            else -> "这个可以继续聊聊，合适的话我们找个轻松点的机会见。"
+        }
+    }
+
+    private fun String.toContrastFunReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "我先确认一下，表面冷静，内心已经开始排队处理了。"
+            contains("晚点") || contains("稍后") -> "晚点回你，我现在像个加载中的进度条。"
+            contains("可以") || contains("没问题") -> "可以，表面淡定，其实已经默默点头了。"
+            contains("好奇") || contains("想继续") -> "你这话说一半，成功让我这个路人开始蹲后续。"
+            contains("舒服") || contains("慢慢") -> "那就慢慢来，我主打一个看起来随意其实很认真。"
+            else -> "懂了，我先假装淡定一下，其实已经有点想听后续。"
         }
     }
 
@@ -219,6 +280,17 @@ object LocalFallbackReplyGenerator {
             contains("好奇") || contains("想继续") -> "你这么一说，我倒更想听下去了，别只说一半吊我胃口。"
             contains("舒服") || contains("慢慢") -> "那就慢慢聊，反正有意思的人，不急着一次聊完。"
             else -> "我懂你的意思，不过你这样说，我会忍不住想多问一句。"
+        }
+    }
+
+    private fun String.toAbstractReply(): String {
+        return when {
+            contains("确认") || contains("安排") -> "收到，我先看一下安排，这波先不乱开香槟，确认好再回你。"
+            contains("晚点") || contains("稍后") -> "我晚点回你，现在大脑还在加载，等它转完这个圈。"
+            contains("可以") || contains("没问题") -> "可以，这事问题不大，先让它稳稳落地。"
+            contains("好奇") || contains("想继续") -> "你这话题有点东西，已经把我的好奇心钓起来了。"
+            contains("舒服") || contains("慢慢") -> "那就慢慢来，节奏对了，比硬冲有用多了。"
+            else -> "懂了，这个展开有点意思，你继续说，我先把瓜子摆好。"
         }
     }
 
