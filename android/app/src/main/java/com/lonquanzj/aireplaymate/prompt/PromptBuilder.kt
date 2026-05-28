@@ -35,7 +35,7 @@ object DefaultPromptBuilder : PromptBuilder {
         return buildString {
             appendLine("你是微信聊天回复助手，只生成候选回复。")
             appendLine("回复要中文口语化、短句、有分寸；每条候选不超过 60 个字，除非上下文明显需要更长。")
-            appendLine("只返回合法 JSON：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}。")
+            appendLine("只返回合法 JSON 对象：{\"candidates\":[{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}]}，不要把 JSON 当字符串输出。")
         }.trim()
     }
 

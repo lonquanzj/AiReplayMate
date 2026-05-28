@@ -47,7 +47,7 @@ internal fun renderStyleMenuContent(
                 styleMenuItemButton(
                     context = context,
                     label = personaConfig.label,
-                    isSelected = personaConfig.id == current.personaConfig.id
+                    isSelected = current.mode == ReplyStyleMode.QUICK_REPLY && personaConfig.id == current.personaConfig.id
                 ) {
                     onProfileChosen(profile, true, false)
                 }
@@ -76,9 +76,9 @@ internal fun renderStyleMenuContent(
                 styleMenuItemButton(
                     context = context,
                     label = playbook.label,
-                    isSelected = playbook.id == current.playbookConfig.id
+                    isSelected = current.mode == ReplyStyleMode.PLAYBOOK && playbook.id == current.playbookConfig.id
                 ) {
-                    onProfileChosen(profile, false, false)
+                    onProfileChosen(profile, true, false)
                 }
             }
         }
@@ -105,9 +105,9 @@ internal fun renderStyleMenuContent(
                 styleMenuItemButton(
                     context = context,
                     label = goal.label,
-                    isSelected = goal.id == current.polishGoalConfig.id
+                    isSelected = current.mode == ReplyStyleMode.POLISH && goal.id == current.polishGoalConfig.id
                 ) {
-                    onProfileChosen(profile, false, true)
+                    onProfileChosen(profile, true, true)
                 }
             }
         }

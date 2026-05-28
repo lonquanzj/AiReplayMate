@@ -100,4 +100,40 @@ class LlmResponseParserTest {
 
         assertEquals(listOf("第一条", "第二条", "第三条"), candidates.map { it.text })
     }
+
+    @Test
+    fun parseCandidates_recovers_json_object_embedded_in_text() {
+        val candidates = LlmResponseParser.parseCandidates(
+            rawContent = """
+                好的，下面是结果：
+                {"candidates":[{"text":"确实不错，走呗抽象派"},{"text":"太阳晒得我想原地躺平"}]}
+            """.trimIndent(),
+            requestedCount = 3,
+            sourceModel = "gpt-test"
+        )
+
+        assertEquals(listOf("确实不错，走呗抽象派", "太阳晒得我想原地躺平"), candidates.map { it.text })
+    }
+
+    @Test
+    fun parseCandidates_recovers_json_object_encoded_as_string() {
+        val candidates = LlmResponseParser.parseCandidates(
+            rawContent = "\"{\\\"candidates\\\":[{\\\"text\\\":\\\"出来吃宵夜，这波可以安排\\\"},{\\\"text\\\":\\\"怎么说？我先把期待值拉满\\\"}]}\"",
+            requestedCount = 3,
+            sourceModel = "gpt-test"
+        )
+
+        assertEquals(listOf("出来吃宵夜，这波可以安排", "怎么说？我先把期待值拉满"), candidates.map { it.text })
+    }
+
+    @Test
+    fun parseCandidates_recovers_json_with_smart_quotes() {
+        val candidates = LlmResponseParser.parseCandidates(
+            rawContent = "{“candidates”:[{“text”:“今天这天气确实有点加分”},{“text”:“出来吃宵夜，这个提议可以有”}]}",
+            requestedCount = 3,
+            sourceModel = "gpt-test"
+        )
+
+        assertEquals(listOf("今天这天气确实有点加分", "出来吃宵夜，这个提议可以有"), candidates.map { it.text })
+    }
 }
