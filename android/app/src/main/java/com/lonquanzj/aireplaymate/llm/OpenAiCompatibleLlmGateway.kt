@@ -137,7 +137,6 @@ internal object OpenAiCompatibleRequestMapper {
             .put("model", model)
             .put("temperature", LlmSampling.normalizedTemperatureDouble(request.temperature))
             .put("max_tokens", request.maxTokens)
-            .put("response_format", JSONObject().put("type", "json_object"))
             .put(
                 "messages",
                 JSONArray()

@@ -1,7 +1,6 @@
 package com.lonquanzj.aireplaymate.llm
 
 import com.lonquanzj.aireplaymate.prompt.ReplyCandidate
-import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
@@ -33,22 +32,44 @@ object LlmResponseParser {
     }
 
     private fun parseJsonCandidates(content: String): List<String> {
-        val jsonContent = content.findJsonObjectText() ?: return emptyList()
-        val root = parseJsonObject(jsonContent) ?: return emptyList()
-        val candidates = root.optJSONArray("candidates")
-            ?: parseJsonObject(jsonContent.normalizeJsonQuotes())?.optJSONArray("candidates")
-            ?: JSONArray()
-        return buildList {
-            for (index in 0 until candidates.length()) {
-                val item = candidates.opt(index)
-                val text = when (item) {
-                    is JSONObject -> item.extractCandidateText()
-                    is String -> item
-                    else -> ""
+        // 尝试标准 JSON 解析
+        val jsonContent = content.findJsonObjectText()
+        if (jsonContent != null) {
+            val root = parseJsonObject(jsonContent)
+            if (root != null) {
+                val candidates = root.optJSONArray("candidates")
+                if (candidates != null && candidates.length() > 0) {
+                    val result = buildList {
+                        for (index in 0 until candidates.length()) {
+                            val item = candidates.opt(index)
+                            val text = when (item) {
+                                is JSONObject -> item.extractCandidateText()
+                                is String -> item
+                                else -> ""
+                            }
+                            if (text.isNotBlank()) add(text)
+                        }
+                    }
+                    if (result.isNotEmpty()) return result
                 }
-                if (text.isNotBlank()) add(text)
             }
         }
+
+        // 兜底：用正则从畸形 JSON 中提取 text 字段值（应对缺 } 等语法错误）
+        return extractTextFieldValues(content)
+    }
+
+    /**
+     * 当 LLM 返回的 JSON 结构不完整时（如缺闭合括号），
+     * 直接用正则提取所有 "text":"..." (或 content/reply/message) 的值。
+     */
+    private fun extractTextFieldValues(content: String): List<String> {
+        val normalized = content.normalizeJsonQuotes()
+        val regex = Regex(""""(?:text|content|reply|message)"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+        return regex.findAll(normalized)
+            .map { it.groupValues[1] }
+            .filter { it.isNotBlank() }
+            .toList()
     }
 
     private fun parsePlainTextCandidates(content: String): List<String> {
